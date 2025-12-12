@@ -1,7 +1,7 @@
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
 import * as vsc from 'vscode';
-import { KsmcCommonPanic, KsmcFsPanic, makeAstFromSrc, KsmAst, makeKsmdListFromAst, KsmRange, getKsmConfigFromAbsDir, getSrcCodeFromPath, IdToken, Char, getNodeFromAstById, Dialog, Clue } from './ksmc/parser';
+import { KsmcCommonPanic, KsmcFsPanic, makeAstFromSrc, KsmAst, makeKsmdListFromAst, KsmRange, getKsmConfigFromAbsDir, getSrcCodeFromPath, IdToken, Char, getNodeFromAstById, Dialog, Clue, writeOrCreateFileByPath } from './ksmc/parser';
 import { cast, staticAssert } from './utils';
 import path from 'path';
 
@@ -9,7 +9,6 @@ import path from 'path';
 // Your extension is activated the very first time the command is executed
 export function activate(context: vsc.ExtensionContext) {
 
-	const diagnosticCollection = vsc.languages.createDiagnosticCollection();
 	let ast: KsmAst | null = null;
 	const hoverProvider = vsc.languages.registerHoverProvider("ksm", {
 		provideHover(document, position, token): vsc.Hover | null {
@@ -30,7 +29,19 @@ export function activate(context: vsc.ExtensionContext) {
 			};
 			const getDialogHover = (node: Dialog) => {
 				const mdstr = new vsc.MarkdownString(undefined, true);
-				mdstr.appendCodeblock(`dialog ${node.idToken.id}`);
+				if (node.commands.length === 0) {
+					mdstr.appendCodeblock(`dialog ${node.idToken.id} {}`, "ksm");
+				} else {
+					mdstr.appendCodeblock(`dialog ${node.idToken.id} {\n${
+						node.commands.map(command => {
+							if (command.type === "say") {
+								return `    ${command.charId}: ${command.text}`;
+							} else {
+								return `    note ${command.targetIdTokenOrDeclareId.id}`;
+							}
+						}).join("\n")
+					}\n}`, "ksm");
+				}
 				return new vsc.Hover(mdstr);
 			};
 			for (const node of Object.values(ast)) {
@@ -89,72 +100,112 @@ export function activate(context: vsc.ExtensionContext) {
 		},
 	});
 
-	const reportACommonOrFsPanic = (commonOrFsPanic: KsmcCommonPanic | KsmcFsPanic) => {
-		const panic = commonOrFsPanic instanceof KsmcCommonPanic ? commonOrFsPanic : commonOrFsPanic.panic;
-		if (typeof panic.range?.fileAbsDir === "string") {
-			const range = panic.range;
-			const uri = vsc.Uri.file(panic.range.fileAbsDir);
-
-			const diagnostic = new vsc.Diagnostic(range.vscRange, panic.message, vsc.DiagnosticSeverity.Error);
-			diagnosticCollection.set(uri, [diagnostic]);
-		} else {
-			console.error(panic);
-			vsc.window.showErrorMessage(panic.message);
-		}
-	};
-
-	{//#region test compile
-		const commandDisposable = vsc.commands.registerCommand('krill-script-marco.test_compile', () => {
-			const textEditor = vsc.window.activeTextEditor;
-			if (!textEditor) {
-				vsc.window.showErrorMessage("当前没有正在活动的文本编辑器。");
-				return;
-			}
-			diagnosticCollection.clear();
+	{//#region compile
+		const compileCommandDisposable = vsc.commands.registerCommand('krill-script-marco.compile', () => {
 
 			const terminal = vsc.window.createTerminal("KST 测试编译");
 			terminal.show();
 			const print = (text: string) => terminal.sendText(`echo '${text.replaceAll("'", "''")}'`);
 
-			print(`生成 AST ...`);
-			const filePath = textEditor.document.uri.fsPath;
-			const astResult = makeAstFromSrc({ srcCode: textEditor.document.getText(), fileAbsDir: filePath, importedAbsDirs: [], rootNodes: {} });
-			if (astResult instanceof KsmcCommonPanic || astResult instanceof KsmcFsPanic) {
-				print(`生成AST出现错误。`);
-				console.error(astResult);
-				if (astResult instanceof KsmcFsPanic) {
-					console.error(astResult.fsErr);
-				}
-				print(astResult.message);
-
-				reportACommonOrFsPanic(astResult);
-
+			const rootFolder = vsc.workspace.workspaceFolders?.[0];
+			if (!rootFolder) { return; }
+			const ksmConfigFileAbsDir = path.resolve(rootFolder.uri.fsPath, "./ksmconfig.json");
+			const ksmConfig = getKsmConfigFromAbsDir(ksmConfigFileAbsDir);
+			if (!ksmConfig) { return; }
+			if (ksmConfig instanceof KsmcFsPanic) {
+				print(`KSM 编译失败：无法打开配置文件。请确保工作区根目录下存在 ksmconfig.json 。\n${ksmConfig.message}`);
 				return;
 			}
-			staticAssert<KsmAst>(astResult);
+
+			const getSrcCodeResult = getSrcCodeFromPath({
+				currentFileAbsDir: ksmConfigFileAbsDir,
+				importTargetPath: ksmConfig.rootFile,
+				importedAbsDirs: null,
+				errorRange: null,
+			});
+			if (getSrcCodeResult instanceof KsmcCommonPanic || getSrcCodeResult instanceof KsmcFsPanic) {
+				print(getSrcCodeResult.message);
+				return;
+			} else if (getSrcCodeResult.type === "repeatImportedAndIgnore") {
+				// 此处理应不可达
+				return;
+			}
+
+			print(`生成 AST ...`);
+			const astResult = makeAstFromSrc({
+				srcCode: getSrcCodeResult.importSrcCode,
+				fileAbsDir: getSrcCodeResult.importAbsDir,
+				importedAbsDirs: [],
+				rootNodes: {},
+				handleImportButNoPathError: ksmConfig.handleImportButNoPathError,
+				handleNewlineInString: ksmConfig.handleNewlineInString,
+			});
+			if (astResult.type === "panic") {
+				print(`生成AST出现错误。`);
+				astResult.panics.forEach(panic => {
+					console.error(panic);
+					if (panic instanceof KsmcFsPanic) {
+						console.error(panic.fsErr);
+					}
+					print(panic.message);
+				});
+				return;
+			}
+
+			const ast: KsmAst = astResult.validAst;
+
 			console.log("astResult: ", astResult);
 			print(`生成 AST 成功。`);
 			//terminal.sendText("echo '按任意键退出。'; $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown'); exit");
 			
-					print(`生成 KSMD ...`);
-					let ksmdListResult = makeKsmdListFromAst({ast: astResult});
-					if (ksmdListResult instanceof KsmcCommonPanic) {
-						print(`生成 KSMD 出现错误。`);
-						console.error(ksmdListResult);
-						print(ksmdListResult.message);
-						return;
-					}
-			
-					const KsmdString = ksmdListResult.join("\r\n");
-			
-					console.log(KsmdString);
-					print(`已成功生成KSMD，请打开控制台查看。`);
+			print(`生成 KSMD ...`);
+			let ksmdListResult = makeKsmdListFromAst({ast, handleInlineNewlines: ksmConfig.handleInlineNewlines});
+			if (ksmdListResult instanceof KsmcCommonPanic) {
+				print(`生成 KSMD 出现错误。`);
+				console.error(ksmdListResult);
+				print(ksmdListResult.message);
+				return;
+			}
+			const ksmdString = ksmdListResult.join("\r\n");
+			print(`生成 KSMD 成功。`);
+
+			print(`写入编译输出文件……`);
+			const writeResult = writeOrCreateFileByPath({
+				text: ksmdString,
+				ksmConfigFileAbsDir,
+				outPath: ksmConfig.outFile,
+			});
+			if (writeResult.type === "panic") {
+				print(`写入编译输出文件出现错误。`);
+				console.error(writeResult.panic);
+				console.error(writeResult.panic.fsErr);
+				print(writeResult.panic.message);
+				return;
+			}
+			print(`成功将编译结果写入到输出文件：${writeResult.outAbsDir}`);
+			terminal.sendText("pause; exit;");
 		});
 
-		context.subscriptions.push(commandDisposable);
+		context.subscriptions.push(compileCommandDisposable);
 	}//#endregion
 
 	{//#region on change
+		const diagnosticCollection = vsc.languages.createDiagnosticCollection();
+
+		const reportACommonOrFsPanic = (commonOrFsPanic: KsmcCommonPanic | KsmcFsPanic) => {
+			const panic = commonOrFsPanic instanceof KsmcCommonPanic ? commonOrFsPanic : commonOrFsPanic.panic;
+			if (typeof panic.range?.fileAbsDir === "string") {
+				const range = panic.range;
+				const uri = vsc.Uri.file(panic.range.fileAbsDir);
+
+				const diagnostic = new vsc.Diagnostic(range.vscRange, panic.message, vsc.DiagnosticSeverity.Error);
+				diagnosticCollection.set(uri, [diagnostic]);
+			} else {
+				console.error(panic);
+				vsc.window.showErrorMessage(panic.message);
+			}
+		};
+
 		const updateSyntaxCheck = (() => {
 			let timeOut: ReturnType<typeof setTimeout> | null;
 
@@ -190,7 +241,7 @@ export function activate(context: vsc.ExtensionContext) {
 					importedAbsDirs: [],
 					rootNodes: {},
 					handleImportButNoPathError: ksmConfig.handleImportButNoPathError,
-					handleNewlineInString: ksmConfig.handleNewline,
+					handleNewlineInString: ksmConfig.handleNewlineInString,
 				});
 				if (astResult.type === "panic") {
 					astResult.panics.forEach(panic => reportACommonOrFsPanic(panic));

@@ -30,8 +30,8 @@
         ],
         "commands": [
             {
-                "command": "krill-script-marco.test_compile",
-                "title": "KST: test compile"
+                "command": "krill-script-marco.compile",
+                "title": "KSM: krill script marco - compile"
             }
         ]
     },

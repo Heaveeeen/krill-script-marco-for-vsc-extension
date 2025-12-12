@@ -1,7 +1,7 @@
 import path, { parse } from 'path';
 import fs from 'fs';
 import * as vsc from 'vscode';
-import { staticAssert, cast, Result } from '../utils';
+import { staticAssert, cast } from '../utils';
 
 export interface KsmRange {
     fileAbsDir: string | null,
@@ -99,14 +99,16 @@ const ReservedWords = new Set([`char`, `clue`, `dialog`, `note`, `import`, `角�
 
 
 interface KsmConfig {
-    /** 编译入口文件 */ 
+    /** 编译入口文件相对于配置文件所在目录的路径 */ 
     rootFile: string,
-    /** 输出文件 */
+    /** 输出文件相当于配置文件所在目录的路径 */
     outFile: string,
     /** @default "panic" */
     handleImportButNoPathError: HandleImportButNoPathErrorConfigs,
     /** @default "panic" */
-    handleNewline: HandleNewlineConfigs,
+    handleNewlineInString: HandleNewlineConfigs,
+    /** @default "panic" */
+    handleInlineNewlines: HandleNewlineConfigs,
 }
 type HandleImportButNoPathErrorConfigs = "ignore" | "warn-to-console" | "panic";
 type HandleNewlineConfigs = "preserve" | "replace-by-backslash-n" | "replace-by-nothing" | "replace-by-space" | "panic";
@@ -143,23 +145,35 @@ export function getKsmConfigFromObj(json: unknown): KsmConfig | null {
     )) {
         handleImportButNoPathError = "panic";
     }
-    let handleNewline =
+    let handleNewlineInString =
         // @ts-expect-error 我说有就有，牛魔
-        json?.handleNewline as any;
-    if (typeof handleNewline !== "string" || (
-        handleNewline !== "preserve" &&
-        handleNewline !== "replace-by-backslash-n" &&
-        handleNewline !== "replace-by-nothing" &&
-        handleNewline !== "replace-by-space"
+        json?.handleNewlineInString as any;
+    if (typeof handleNewlineInString !== "string" || (
+        handleNewlineInString !== "preserve" &&
+        handleNewlineInString !== "replace-by-backslash-n" &&
+        handleNewlineInString !== "replace-by-nothing" &&
+        handleNewlineInString !== "replace-by-space"
     )) {
-        handleNewline = "panic";
+        handleNewlineInString = "panic";
+    }
+    let handleInlineNewlines =
+        // @ts-expect-error 我说有就有，牛魔
+        json?.handleInlineNewlines as any;
+    if (typeof handleInlineNewlines !== "string" || (
+        handleInlineNewlines !== "preserve" &&
+        handleInlineNewlines !== "replace-by-backslash-n" &&
+        handleInlineNewlines !== "replace-by-nothing" &&
+        handleInlineNewlines !== "replace-by-space"
+    )) {
+        handleInlineNewlines = "panic";
     }
 
     return {
         rootFile,
         outFile,
         handleImportButNoPathError,
-        handleNewline,
+        handleNewlineInString,
+        handleInlineNewlines
     };
 }
 
@@ -877,4 +891,27 @@ export function makeKsmdListFromAst(opitons: {
         staticAssert<undefined>(result);
     }
     return ksmdList;
+}
+
+export function writeOrCreateFileByPath(opitons: {
+    text: string, ksmConfigFileAbsDir: string, outPath: string
+}): { type: "success", outAbsDir: string } | { type: "panic", panic: KsmcFsPanic } {
+    const { text, ksmConfigFileAbsDir: configAbsDir, outPath } = opitons;
+    let outAbsDir: string;
+    try {
+        outAbsDir = path.resolve(configAbsDir, "../", outPath);
+    } catch (err) {
+        return { type: "panic", panic: new KsmcFsPanic(
+            new KsmcCommonPanic(`尝试写入文件时，解析目标相对路径 ${configAbsDir} -> ${outPath} 出现未知错误。`, null), err
+        ), };
+    }
+    try {
+        fs.writeFileSync(outAbsDir, text, { encoding: "utf-8", flag: "w" });
+    } catch (err) {
+        return { type: "panic", panic: new KsmcFsPanic(
+            new KsmcCommonPanic(`尝试向 ${outAbsDir} 写入文件时，出现未知错误。`, null), err
+        ), };
+    }
+
+    return { type: "success", outAbsDir };
 }
