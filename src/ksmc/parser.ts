@@ -1,7 +1,7 @@
-import path from 'path';
+import path, { parse } from 'path';
 import fs from 'fs';
 import * as vsc from 'vscode';
-import { staticAssert, cast } from '../utils';
+import { staticAssert, cast, Result } from '../utils';
 
 export interface KsmRange {
     fileAbsDir: string | null,
@@ -40,22 +40,22 @@ export class KsmcNoSuchTokenError extends Error {
 
 
 
-type Id<T extends RootNode = RootNode> = string & { __brand: T };
+export type Id<T extends RootNode = RootNode> = string & { __brand: T };
 
-type IdToken<T extends RootNode = RootNode> = {
+export type IdToken<T extends RootNode = RootNode> = {
     type: "idToken",
     id: Id<T>,
     range: KsmRange,
 };
 
-type Char = {
+export type Char = {
     type: "char",
     idToken: IdToken<Char>,
     name: string,
     range: KsmRange,
 };
 
-type Clue = {
+export type Clue = {
     type: "clue",
     idToken: IdToken<Clue>,
     desc: string,
@@ -63,23 +63,23 @@ type Clue = {
     range: KsmRange,
 };
 
-type AskPair = {
+export type AskPair = {
     type: "askPair",
     charIdToken: IdToken<Char>,
-    dialogIdTokenOrDeclareId: IdToken<Dialog> | Id<Dialog>,
+    dialogIdTokenOrDeclareId: IdToken<Dialog> | { type: "askDialogDeclareId", id: Id<Dialog> },
     range: KsmRange,
 };
 
-type Dialog = {
+export type Dialog = {
     type: "dialog",
     idToken: IdToken<Dialog>,
     commands: Command[],
     range: KsmRange,
 };
 
-type Command = Say | Note;
+export type Command = Say | Note;
 
-type Say = {
+export type Say = {
     type: "say",
     charIdToken: IdToken<Char> | null,
     charId: Id<Char>,
@@ -87,22 +87,94 @@ type Say = {
     range: KsmRange,
 }
 
-type Note = {
+export type Note = {
     type: "note",
-    targetIdTokenOrDeclareId: IdToken<Char | Clue> | Id<Char | Clue>,
+    targetIdTokenOrDeclareId: IdToken<Char | Clue> | { type: "noteCharOrClueDeclareId", id: Id<Char | Clue> },
     range: KsmRange,
 };
 
-type RootNode = Char | Clue | Dialog;
+export type RootNode = Char | Clue | Dialog;
 
 const ReservedWords = new Set([`char`, `clue`, `dialog`, `note`, `import`, `角色`, `线索`, `对话`, `笔记`, `导入`]);
 
 
+interface KsmConfig {
+    /** 编译入口文件 */ 
+    rootFile: string,
+    /** 输出文件 */
+    outFile: string,
+    /** @default "panic" */
+    handleImportButNoPathError: HandleImportButNoPathErrorConfigs,
+    /** @default "panic" */
+    handleNewline: HandleNewlineConfigs,
+}
+type HandleImportButNoPathErrorConfigs = "ignore" | "warn-to-console" | "panic";
+type HandleNewlineConfigs = "preserve" | "replace-by-backslash-n" | "replace-by-nothing" | "replace-by-space" | "panic";
 
-const importSrcCodeFromPath = (options: {
+function getJsonObjFromAbsDir(absDir: string): { json: unknown } | KsmcFsPanic {
+    try {
+        const text = fs.readFileSync(absDir, "utf-8");
+        const parseResult: unknown = JSON.parse(text);
+        return { json: parseResult };
+    } catch (err) {
+        return new KsmcFsPanic(new KsmcCommonPanic(`无法读取 JSON 文件${absDir}`, null), err);
+    }
+}
+
+export function getKsmConfigFromObj(json: unknown): KsmConfig | null {
+    if (typeof json !== "object" || json === null) {
+        json = {};
+    }
+
+    const rootFile =
+        // @ts-expect-error 我说有就有，牛魔
+        json?.rootFile as any;
+    if (typeof rootFile !== "string") { return null; }
+    const outFile =
+        // @ts-expect-error 我说有就有，牛魔
+        json?.outFile as any;
+    if (typeof outFile !== "string") { return null; }
+    let handleImportButNoPathError =
+        // @ts-expect-error 我说有就有，牛魔
+        json?.handleImportButNoPathError as any;
+    if (typeof handleImportButNoPathError !== "string" || (
+        handleImportButNoPathError !== "ignore" &&
+        handleImportButNoPathError !== "warn-to-console"
+    )) {
+        handleImportButNoPathError = "panic";
+    }
+    let handleNewline =
+        // @ts-expect-error 我说有就有，牛魔
+        json?.handleNewline as any;
+    if (typeof handleNewline !== "string" || (
+        handleNewline !== "preserve" &&
+        handleNewline !== "replace-by-backslash-n" &&
+        handleNewline !== "replace-by-nothing" &&
+        handleNewline !== "replace-by-space"
+    )) {
+        handleNewline = "panic";
+    }
+
+    return {
+        rootFile,
+        outFile,
+        handleImportButNoPathError,
+        handleNewline,
+    };
+}
+
+export const getKsmConfigFromAbsDir = (absDir: string) => {
+    const jsonResult = getJsonObjFromAbsDir(absDir);
+    if (jsonResult instanceof KsmcFsPanic) {
+        return jsonResult;
+    }
+    return getKsmConfigFromObj(jsonResult.json);
+};
+
+export const getSrcCodeFromPath = (options: {
     currentFileAbsDir: string,
     importTargetPath: string,
-    importedAbsDirs: string[],
+    importedAbsDirs: string[] | null,
     errorRange: KsmRange | null,
 }) => {
     const { currentFileAbsDir, importTargetPath, importedAbsDirs, errorRange } = options;
@@ -113,17 +185,22 @@ const importSrcCodeFromPath = (options: {
         return new KsmcCommonPanic(`path.resolve 在尝试解析 ${importTargetPath} 时，出现未知错误。`, errorRange);
     }
 
-    if (importedAbsDirs.includes(importAbsDir)) {
+    if (importedAbsDirs?.includes(importAbsDir)) {
         return { type: "repeatImportedAndIgnore" as const, importAbsDir };
     } else {
-        importedAbsDirs.push(importAbsDir);
-        let importSrcCode;
-        try {
-            importSrcCode = fs.readFileSync(importAbsDir, "utf-8");
-        } catch (err) {
-            return new KsmcFsPanic(new KsmcCommonPanic(
-                `fs.readFileSync 在尝试导入 ${importAbsDir} 时，出现未知错误。或许是因为给定的目标路径“${importTargetPath}”不合法。`, errorRange
-            ), err);
+        importedAbsDirs?.push(importAbsDir);
+        let importSrcCode: string;
+        const vscTextDocumentResult = vsc.workspace.textDocuments.find(textDocument => textDocument.uri.fsPath === importAbsDir);
+        if (vscTextDocumentResult !== undefined) {
+            importSrcCode = vscTextDocumentResult.getText();
+        } else {
+            try {
+                importSrcCode = fs.readFileSync(importAbsDir, "utf-8");
+            } catch (err) {
+                return new KsmcFsPanic(new KsmcCommonPanic(
+                    `fs.readFileSync 在尝试导入 ${importAbsDir} 时，出现未知错误。或许是因为给定的目标路径“${importTargetPath}”不合法。`, errorRange
+                ), err);
+            }
         }
         return { type: "success" as const, importSrcCode, importAbsDir };
     }
@@ -133,22 +210,26 @@ export type KsmAst = Record<Id, RootNode>;
 
 const idBeginReg = /[\p{L}_]/u;
 const idBodyReg = /[\p{L}_0-9]/u;
+
+export function getNodeFromAstById<T extends RootNode>(ast: KsmAst, id: Id<T>) {
+    return ast[id] as T | undefined ?? null;
+}
+
 export function makeAstFromSrc(options: {
     srcCode: string,
     fileAbsDir: string | null,
     importedAbsDirs: string[],
     rootNodes: KsmAst,
     /** @default "panic" */
-    handleImportButNoPathError?: "ignore" | "warn-to-console" | "panic",
+    handleImportButNoPathError?: HandleImportButNoPathErrorConfigs,
     /** @default "panic" */
-    handleNewlineInString?: "preserve" | "replace-by-backslash-n" | "replace-by-nothing" | "replace-by-space" | "panic",
-}): KsmAst | KsmcCommonPanic | KsmcFsPanic {
+    handleNewlineInString?: HandleNewlineConfigs,
+}): { type: "success", validAst: KsmAst } | { type: "panic", panicedAst: KsmAst | null, panics: (KsmcCommonPanic | KsmcFsPanic)[] } {
     const {srcCode, fileAbsDir, importedAbsDirs, rootNodes} = options;
+    const panics: (KsmcCommonPanic | KsmcFsPanic)[] = [];
     const handleImportButNoPathError = options.handleImportButNoPathError ?? "panic";
     const handleNewlineInString = options.handleNewlineInString ?? "panic";
-    function getNodeById<T extends RootNode>(id: Id<T>) {
-        return rootNodes[id] as T | undefined ?? null;
-    }
+    const getNodeById = <T extends RootNode>(id: Id<T>) => getNodeFromAstById(rootNodes, id);
     function makeDeclare<T extends RootNode>(node: T) {
         if (rootNodes[node.idToken.id]) {
             return new KsmcCommonPanic(`重复声明了标识符“${node.idToken}”`, node.range);
@@ -217,11 +298,10 @@ export function makeAstFromSrc(options: {
 
     function nextIdentifier<T extends RootNode = RootNode>(): IdToken<T> | KsmcNoSuchTokenError {
         const beginPos = pos, beginRow = row, beginCol = col;
-        if (idBeginReg.test(peek() as string)) {
+        if (peek() && idBeginReg.test(peek() as string)) {
             // 匹配名称
             let beginPos = pos;
-            // @ts-expect-error 这里传 undefined 也无所谓
-            while (idBodyReg.test(next())) {}
+            while (next() && idBodyReg.test(peek())) {}
             let id = srcCode.substring(beginPos, pos) as Id<T>;
             if (!ReservedWords.has(id)) {
                 return { type: "idToken", id, range: getRange(beginRow, beginCol) };
@@ -247,10 +327,10 @@ export function makeAstFromSrc(options: {
                     next();
                     if (peek() === "\\") {
                         str += "\\";
-                    } else if (peek() === "r") {
-                        str += "\\r"; // 鉴于 scratch 的特性，换行符保留转义字符
+                    /*} else if (peek() === "r") {
+                        str += "\\r";*/
                     } else if (peek() === "n") {
-                        str += "\\n";
+                        str += "\\n"; // 鉴于 scratch 的特性，换行符保留转义字符
                     } else if (peek() === "t") {
                         str += "\t";
                     } else if (peek() === '"') {
@@ -319,7 +399,7 @@ export function makeAstFromSrc(options: {
             if (idResult instanceof KsmcCommonPanic) { return idResult; }
             if (idResult instanceof KsmcNoSuchTokenError) { return idResult.panic; }
 
-            skipWS();
+            skipInlineWS();
             const nameResult = nextString();
             if (nameResult instanceof KsmcCommonPanic) { return nameResult; }
             if (nameResult instanceof KsmcNoSuchTokenError) { return nameResult.panic; }
@@ -363,7 +443,11 @@ export function makeAstFromSrc(options: {
                     if (asks.some(({charIdToken}) => charIdToken.id === newCharIdToken.id)) {
                         return new KsmcCommonPanic(`重复的询问对象“${newCharIdToken}”`, getRange(beginRow, beginCol));
                     } else {
-                        asks.push({type: "askPair", charIdToken: newCharIdToken, dialogIdTokenOrDeclareId: newDialogDeclare.idToken.id, range});
+                        asks.push({
+                            type: "askPair", charIdToken: newCharIdToken,
+                            dialogIdTokenOrDeclareId: { type: "askDialogDeclareId", id: newDialogDeclare.idToken.id },
+                            range
+                        });
                     }
                 };
                 next();
@@ -473,6 +557,7 @@ export function makeAstFromSrc(options: {
         if (typeof colonResult === "string") {
             charId = lastCharId;
         } else {
+            // 开头的冒号没找到，现在位于指令开头
             idTokenResult = nextIdentifier();
             if (idTokenResult instanceof KsmcNoSuchTokenError) {
                 charId = lastCharId;
@@ -481,11 +566,11 @@ export function makeAstFromSrc(options: {
                 idTokenResult = cast<IdToken, IdToken<Char>>(idTokenResult); // FIXME: ASSERT say.charId (done)
                 charId = idTokenResult.id;
             }
+            skipInlineWS();
             colonResult = nextColon();
         }
         staticAssert<IdToken<Char> | null>(idTokenResult);
 
-        skipInlineWS();
         if (colonResult instanceof KsmcNoSuchTokenError) {
             const noSuchTokenRange = getRange(beginRow, beginCol);
             pos = beginPos, row = beginRow, col = beginCol;
@@ -506,10 +591,10 @@ export function makeAstFromSrc(options: {
                 next();
                 if (peek() === "\\") {
                     text += "\\";
-                } else if (peek() === "r") {
-                    text += "\\r"; // 鉴于 scratch 的特性，换行符保留转义字符
+                /*} else if (peek() === "r") {
+                    text += "\\r";*/
                 } else if (peek() === "n") {
-                    text += "\\n";
+                    text += "\\n"; // 鉴于 scratch 的特性，换行符保留转义字符
                 } else if (peek() === "t") {
                     text += "\t";
                 } else if (peek() === "/") {
@@ -548,7 +633,10 @@ export function makeAstFromSrc(options: {
             } else {
                 return {
                     type: "note",
-                    targetIdTokenOrDeclareId: nextTokenResult.idToken.id,
+                    targetIdTokenOrDeclareId: {
+                        type: "noteCharOrClueDeclareId",
+                        id: nextTokenResult.idToken.id
+                    },
                     range: getRange(beginRow, beginCol)
                 };
             }
@@ -590,7 +678,7 @@ export function makeAstFromSrc(options: {
                 }
             }
 
-            const importSrcCodeResult = importSrcCodeFromPath({
+            const importSrcCodeResult = getSrcCodeFromPath({
                 currentFileAbsDir: fileAbsDir,
                 importTargetPath: importTargetPathResult,
                 importedAbsDirs,
@@ -632,10 +720,11 @@ export function makeAstFromSrc(options: {
             nextDialogDeclare, () => 
             nextImport({ handleImportButNoPathError })
         )));
-        if (nextNodeResult instanceof KsmcCommonPanic || nextNodeResult instanceof KsmcFsPanic) {
-            return nextNodeResult;
-        } else if (nextNodeResult instanceof KsmcNoSuchTokenError) {
-            return nextNodeResult.panic;
+        if (nextNodeResult instanceof KsmcCommonPanic || nextNodeResult instanceof KsmcFsPanic || nextNodeResult instanceof KsmcNoSuchTokenError) {
+            return {
+                type: "panic", panicedAst: null,
+                panics: [nextNodeResult instanceof KsmcNoSuchTokenError ? nextNodeResult.panic : nextNodeResult],
+            };
         }
         staticAssert<Dialog | Char | Clue | KsmAst>(nextNodeResult);
         skipWS();
@@ -644,44 +733,81 @@ export function makeAstFromSrc(options: {
     // 检验上述的 FIXME ASSERT 断言
     for (const node of Object.values(rootNodes)) {
         if (node.type === "clue") {
-            node.asks.forEach(({charIdToken, dialogIdTokenOrDeclareId}) => {
-                {
+            for (const ask of node.asks) { // 线索的 问谁：进入啥对话 检验
+                const {charIdToken, dialogIdTokenOrDeclareId: dialogToken} = ask;
+                { // 问话那人存在吗？
                     const charResult = getNodeById(charIdToken.id);
-                    if (charResult === null) { return new KsmcCommonPanic(`未知的标识符“${charIdToken.id}”。`, charIdToken.range); }
-                    if (charResult.type !== "char") { return new KsmcCommonPanic(`“${charIdToken.id}”不是角色标识符。`, charIdToken.range); }
+                    if (charResult === null) { return {
+                        type: "panic",
+                        panicedAst: rootNodes,
+                        panics: [new KsmcCommonPanic(`未知的标识符“${charIdToken.id}”。`, charIdToken.range)],
+                    }; }
+                    if (charResult.type !== "char") { return {
+                        type: "panic",
+                        panicedAst: rootNodes,
+                        panics: [new KsmcCommonPanic(`“${charIdToken.id}”不是角色标识符。`, charIdToken.range)],
+                    }; }
                 }
-                if (typeof dialogIdTokenOrDeclareId === "string" ) {
-                    // 在 asks 中立即声明对话的，理应不涉及标识符错误的问题，这里姑且断言
-                } else {
-                    const dialogResult = getNodeById(dialogIdTokenOrDeclareId.id);
-                    if (dialogResult === null) { return new KsmcCommonPanic(`未知的标识符“${dialogIdTokenOrDeclareId.id}”。`, dialogIdTokenOrDeclareId.range); }
-                    if (dialogResult.type !== "dialog") { return new KsmcCommonPanic(`“${dialogIdTokenOrDeclareId.id}”不是对话标识符。`, dialogIdTokenOrDeclareId.range); }
-                }
-            });
+                // 要说的对话存在吗？
+                const dialogResult = getNodeById(dialogToken.id);
+                if (dialogResult === null) { return {
+                    type: "panic",
+                    panicedAst: rootNodes,
+                    panics: [new KsmcCommonPanic(
+                        `未知的标识符“${dialogToken.id}”。`,
+                        dialogToken.type === "idToken" ? dialogToken.range : ask.range
+                    )],
+                };}
+                if (dialogResult.type !== "dialog") { return {
+                    type: "panic",
+                    panicedAst: rootNodes,
+                    panics: [new KsmcCommonPanic(
+                        `“${dialogToken.id}”不是对话标识符。`,
+                        dialogToken.type === "idToken" ? dialogToken.range : ask.range
+                    )],
+                };}
+            };
         } else if (node.type === "dialog") {
-            node.commands.forEach(command => {
-                if (command.type === "say") {
+            for (const command of node.commands) { // 检验对话中的每一行命令
+                if (command.type === "say") { // 说话者存在吗？
                     if (command.charIdToken !== null) {
                         const charResult = getNodeById(command.charIdToken.id);
-                        if (charResult === null) { return new KsmcCommonPanic(`未知的标识符“${command.charIdToken.id}”。`, command.charIdToken.range); }
-                        if (charResult.type !== "char") { return new KsmcCommonPanic(`“${command.charIdToken.id}”不是角色标识符。`, command.charIdToken.range); }
+                        if (charResult === null) { return {
+                            type: "panic",
+                            panicedAst: rootNodes,
+                            panics: [new KsmcCommonPanic(`未知的标识符“${command.charIdToken.id}”。`, command.charIdToken.range)],
+                        }; }
+                        if (charResult.type !== "char") { return {
+                            type: "panic",
+                            panicedAst: rootNodes,
+                            panics: [new KsmcCommonPanic(`“${command.charIdToken.id}”不是角色标识符。`, command.charIdToken.range)],
+                        }; }
                     }
-                } else if (command.type === "note") {
-                    if (typeof command.targetIdTokenOrDeclareId === "string" ) {
-                        // 在 note 中立即声明对象的，理应不涉及标识符错误的问题，这里姑且断言
-                    } else {
-                        const targetResult = getNodeById(command.targetIdTokenOrDeclareId.id);
-                        if (targetResult === null) { return new KsmcCommonPanic(`未知的标识符“${command.targetIdTokenOrDeclareId.id}”。`, command.targetIdTokenOrDeclareId.range); }
-                        if (targetResult.type !== "char" && targetResult.type !== "clue") {
-                            return new KsmcCommonPanic(`“${command.targetIdTokenOrDeclareId.id}”不是线索或角色标识符。`, command.targetIdTokenOrDeclareId.range);
-                        }
-                    }
+                } else if (command.type === "note") { // 笔记的联络人或线索存在吗？
+                    const targetToken = command.targetIdTokenOrDeclareId;
+                    const targetResult = getNodeById(targetToken.id);
+                    if (targetResult === null) { return { // 不存在该名称
+                        type: "panic",
+                        panicedAst: rootNodes,
+                        panics: [new KsmcCommonPanic(
+                            `未知的标识符“${targetToken.id}”。`,
+                            targetToken.type === "idToken" ? targetToken.range : command.range
+                        )],
+                    }; }
+                    if (targetResult.type !== "char" && targetResult.type !== "clue") { return { // 该名称类型不对
+                        type: "panic",
+                        panicedAst: rootNodes,
+                        panics: [new KsmcCommonPanic(
+                            `“${targetToken.id}”不是线索或角色标识符。`,
+                            targetToken.type === "idToken" ? targetToken.range : command.range
+                        )],
+                    }; }
                 }
-            });
+            };
         }
     }
 
-    return rootNodes;
+    return { type: "success", validAst: rootNodes };
 }
 
 
@@ -689,7 +815,7 @@ const hasNlReg = /[\r\n]/;
 export function makeKsmdListFromAst(opitons: {
     ast: KsmAst,
     /** @default "panic" */
-    handleInlineNewlines?: "preserve" | "replace-by-backslash-n" | "replace-by-nothing" | "replace-by-space" | "panic"
+    handleInlineNewlines?: HandleNewlineConfigs
 }): string[] | KsmcCommonPanic {
     const { ast } = opitons;
     const handleInlineNewlines = opitons.handleInlineNewlines ?? "panic";
@@ -728,7 +854,7 @@ export function makeKsmdListFromAst(opitons: {
                 node.desc,
                 ...node.asks.flatMap(({charIdToken, dialogIdTokenOrDeclareId}) => [
                     charIdToken.id,
-                    typeof dialogIdTokenOrDeclareId === "string" ? dialogIdTokenOrDeclareId : dialogIdTokenOrDeclareId.id
+                    dialogIdTokenOrDeclareId.id,
                 ]),
             );
         } else if (node.type === "dialog") {
@@ -738,7 +864,7 @@ export function makeKsmdListFromAst(opitons: {
                 ...node.commands.flatMap((command) =>
                     command.type === "say" ? [command.charId, command.text] : [
                         "note", 
-                        typeof command.targetIdTokenOrDeclareId === "string" ? command.targetIdTokenOrDeclareId : command.targetIdTokenOrDeclareId.id
+                        command.targetIdTokenOrDeclareId.id,
                     ]
                 ),
             );
