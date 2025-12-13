@@ -294,20 +294,11 @@ export function activate(context: vsc.ExtensionContext) {
 			if (ast === null) { return null; }
 			const isHover = (range: KsmRange) => document.uri.fsPath === range.fileAbsDir && range.vscRange.contains(position);
 			const getLocation = (range: KsmRange) => range.fileAbsDir !== null ? new vsc.Location(vsc.Uri.file(range.fileAbsDir), range.vscRange) : null;
-			const refsByType: Record<RefType, vsc.Location[]> = {
-				"char-declare": [],
-				"clue-declare": [],
-				"dialog-declare": [],
-				"ask-char": [],
-				"ask-dialog": [],
-				"note-char": [],
-				"note-clue": [],
-				"say-char": [],
-			};
+			const refs: vsc.Location[] = [];
 			const add = (range: KsmRange, type: RefType) => {
 				const location = getLocation(range);
 				if (location !== null) {
-					refsByType[type].push(location);
+					refs.push(location);
 				}
 			};
 			forEachRefOfHoverRanges({
@@ -316,16 +307,6 @@ export function activate(context: vsc.ExtensionContext) {
 				isHover,
 				callback: add,
 			});
-			const refs: vsc.Location[] = [
-				...refsByType["char-declare"],
-				...refsByType["clue-declare"],
-				...refsByType["dialog-declare"],
-				...refsByType["ask-char"],
-				...refsByType["ask-dialog"],
-				...refsByType["note-char"],
-				...refsByType["note-clue"],
-				...refsByType["say-char"],
-			];
 			return refs;
 		},
 	});
