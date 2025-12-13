@@ -613,8 +613,9 @@ export function activate(context: vsc.ExtensionContext) {
 			const configAbsDir = path.resolve(rootAbsDir, "./ksmconfig.json");
 			const writeResult = writeFileByAbsDir({
 				text: `{
-    "rootFile": "./foo.ksm",
-    "outFile": "./dist/foo.txt",
+    "rootFile": "./my_index_file.ksm",
+    "outFile": "./dist/my_out_file.txt",
+
     "handleImportButNoPathError": "panic",
     "handleNewlineInString": "panic",
     "handleInlineNewlines": "panic",
