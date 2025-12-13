@@ -8,7 +8,7 @@ export function activate(context: vsc.ExtensionContext) {
 	let ast: KsmAst | null = null;
 
 	/*const wordPattern = /[^`~!@#%\^&\*\(\)\-=\+\[\{\]\}\\\|;:'",\.<>\/\?\s：“”]+/gu;;
-	const sematicTokensProvider = vsc.languages.registerDocumentSemanticTokensProvider("*.ksm", {
+	const sematicTokensProvider = vsc.languages.registerDocumentSemanticTokensProvider("ksm", {
 		async provideDocumentSemanticTokens(document, token): Promise<vsc.SemanticTokens | null> {
 			const builder = new vsc.SemanticTokensBuilder();
 			const text = document.getText();
@@ -30,7 +30,7 @@ export function activate(context: vsc.ExtensionContext) {
 		tokenModifiers: [],
 	});*/
 	
-	const hoverProvider = vsc.languages.registerHoverProvider("*.ksm", {
+	const hoverProvider = vsc.languages.registerHoverProvider("ksm", {
 		async provideHover(document, position, token): Promise<vsc.Hover | null> {
 			if (ast === null) { return null; }
 			const isHover = (range: KsmRange) => document.uri.fsPath === range.fileAbsDir && range.vscRange.contains(position);
@@ -121,7 +121,7 @@ export function activate(context: vsc.ExtensionContext) {
 		},
 	});
 
-	const definitionProvider = vsc.languages.registerDefinitionProvider("*.ksm", {
+	const definitionProvider = vsc.languages.registerDefinitionProvider("ksm", {
 		async provideDefinition(document, position, token): Promise<vsc.Location | null> {
 			if (ast === null) { return null; }
 			const isHover = (range: KsmRange) => document.uri.fsPath === range.fileAbsDir && range.vscRange.contains(position);
@@ -289,7 +289,7 @@ export function activate(context: vsc.ExtensionContext) {
 		}
 	};
 
-	const referenceProvider = vsc.languages.registerReferenceProvider("*.ksm", {
+	const referenceProvider = vsc.languages.registerReferenceProvider("ksm", {
 		async provideReferences(document, position, context, token): Promise<vsc.Location[] | null> {
 			if (ast === null) { return null; }
 			const isHover = (range: KsmRange) => document.uri.fsPath === range.fileAbsDir && range.vscRange.contains(position);
@@ -364,7 +364,7 @@ export function activate(context: vsc.ExtensionContext) {
 		return { ok: false, message: "无法重命名该位置。" };
 	};
 
-	const renameProvider = vsc.languages.registerRenameProvider("*.ksm", {
+	const renameProvider = vsc.languages.registerRenameProvider("ksm", {
 		async prepareRename(document, position, token): Promise<vsc.Range> {
 			const prepareRenameResult = prepareRenameOrNot(document, position, token);
 			if (prepareRenameResult.ok) {
@@ -393,7 +393,7 @@ export function activate(context: vsc.ExtensionContext) {
 		},
 	});
 
-	const completionProvider = vsc.languages.registerCompletionItemProvider("*.ksm", {
+	const completionProvider = vsc.languages.registerCompletionItemProvider("ksm", {
 		async provideCompletionItems(document, position, token, context): Promise<vsc.CompletionItem[] | null> {
 			if (ast === null) { return null; }
 			const compItems: vsc.CompletionItem[] = [];
@@ -441,7 +441,7 @@ export function activate(context: vsc.ExtensionContext) {
 
 	const nullRange = new vsc.Range(new vsc.Position(0, 0), new vsc.Position(0, 0));
 
-	const symbolProvider = vsc.languages.registerDocumentSymbolProvider("*.ksm", {
+	const symbolProvider = vsc.languages.registerDocumentSymbolProvider("ksm", {
 		async provideDocumentSymbols(document, token): Promise<vsc.DocumentSymbol[] | null> {
 			if (ast === null) { return null; }
 			const symbols: vsc.DocumentSymbol[] = [];
