@@ -95,7 +95,7 @@ export type Note = {
 
 export type RootNode = Char | Clue | Dialog;
 
-const ReservedWords = new Set([`char`, `clue`, `dialog`, `note`, `import`, `角色`, `线索`, `对话`, `笔记`, `导入`]);
+export const ReservedWords = new Set([`char`, `clue`, `dialog`, `note`, `import`, `角色`, `线索`, `对话`, `笔记`, `导入`]);
 
 
 interface KsmConfig {
@@ -220,7 +220,9 @@ export const getSrcCodeFromPath = (options: {
     }
 };
 
-export type KsmAst = Record<Id, RootNode>;
+export type KsmAstNoBrand = Record<Id, RootNode>;
+
+export type KsmAst = KsmAstNoBrand & { __brand: "KsmAst" };
 
 const idBeginReg = /[\p{L}_]/u;
 const idBodyReg = /[\p{L}_0-9]/u;
@@ -664,7 +666,7 @@ export function makeAstFromSrc(options: {
         }
     }
 
-    function nextImport(options: {handleImportButNoPathError: "ignore" | "warn-to-console" | "panic"}): KsmAst | KsmcNoSuchTokenError | KsmcCommonPanic | KsmcFsPanic {
+    function nextImport(options: {handleImportButNoPathError: "ignore" | "warn-to-console" | "panic"}): ReturnType<typeof makeAstFromSrc> | KsmcNoSuchTokenError | KsmcCommonPanic | KsmcFsPanic {
         const { handleImportButNoPathError: importButNoPathErrorLevel } = options;
         const beginPos = pos, beginRow = row, beginCol = col;
         if (srcCode.substring(pos, pos + 6) === "import") {
@@ -680,12 +682,12 @@ export function makeAstFromSrc(options: {
 
             if (fileAbsDir === null) {
                 if (importButNoPathErrorLevel === "ignore") {
-                    return rootNodes;
+                    return { type: "success", validAst: rootNodes };
                 }
                 const panic = new KsmcCommonPanic(`没有已知的源码路径，但源码中包含 import 表达式。`, getRange(beginRow, beginCol));
                 if (importButNoPathErrorLevel === "warn-to-console") {
                     console.warn(panic);
-                    return rootNodes;
+                    return { type: "success", validAst: rootNodes };
                 } else {
                     staticAssert<"panic">(importButNoPathErrorLevel);
                     return panic;
@@ -705,7 +707,7 @@ export function makeAstFromSrc(options: {
             const { importAbsDir } = importSrcCodeResult;
             if (importSrcCodeResult.type === "repeatImportedAndIgnore") {
                 console.log(`KSM: 忽略重复导入 ${importAbsDir}`);
-                return rootNodes;
+                return { type: "success", validAst: rootNodes };
             } else {
                 const { importSrcCode } = importSrcCodeResult;
                 return makeAstFromSrc({ srcCode: importSrcCode, fileAbsDir: importAbsDir, importedAbsDirs, rootNodes });
@@ -740,12 +742,12 @@ export function makeAstFromSrc(options: {
                 panics: [nextNodeResult instanceof KsmcNoSuchTokenError ? nextNodeResult.panic : nextNodeResult],
             };
         }
-        staticAssert<Dialog | Char | Clue | KsmAst>(nextNodeResult);
+        staticAssert<Dialog | Char | Clue | ReturnType<typeof makeAstFromSrc>>(nextNodeResult);
         skipWS();
     }
 
     // 检验上述的 FIXME ASSERT 断言
-    for (const node of Object.values(rootNodes)) {
+    for (const node of Object.values(rootNodes as KsmAstNoBrand)) {
         if (node.type === "clue") {
             for (const ask of node.asks) { // 线索的 问谁：进入啥对话 检验
                 const {charIdToken, dialogIdTokenOrDeclareId: dialogToken} = ask;
@@ -853,7 +855,7 @@ export function makeKsmdListFromAst(opitons: {
             }
         }
     };
-    for (const node of Object.values(ast)) {
+    for (const node of Object.values(ast as KsmAstNoBrand)) {
         let result: KsmcCommonPanic | undefined;
         if (node.type === "char") {
             result = add<Char>(
