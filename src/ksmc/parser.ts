@@ -109,17 +109,25 @@ interface KsmConfig {
     handleNewlineInString: HandleNewlineConfigs,
     /** @default "panic" */
     handleInlineNewlines: HandleNewlineConfigs,
+    /** @default false */
+    allowChineseKeywords: boolean,
 }
+
 type HandleImportButNoPathErrorConfigs = "ignore" | "warn-to-console" | "panic";
 type HandleNewlineConfigs = "preserve" | "replace-by-backslash-n" | "replace-by-nothing" | "replace-by-space" | "panic";
 
 function getJsonObjFromAbsDir(absDir: string): { json: unknown } | KsmcFsPanic {
+    let text: string;
     try {
-        const text = fs.readFileSync(absDir, "utf-8");
-        const parseResult: unknown = JSON.parse(text);
-        return { json: parseResult };
+        text = fs.readFileSync(absDir, "utf-8");
     } catch (err) {
         return new KsmcFsPanic(new KsmcCommonPanic(`无法读取 JSON 文件${absDir}`, null), err);
+    }
+    try {
+        let parseResult: unknown = JSON.parse(text);
+        return { json: parseResult };
+    } catch (err) {
+        return new KsmcFsPanic(new KsmcCommonPanic(`无法解析 JSON 文件${absDir}，可能是出现了语法错误`, null), err);
     }
 }
 
@@ -167,13 +175,20 @@ export function getKsmConfigFromObj(json: unknown): KsmConfig | null {
     )) {
         handleInlineNewlines = "panic";
     }
+    let allowChineseKeywords =
+        // @ts-expect-error 我说有就有，牛魔
+        json?.allowChineseKeywords as any;
+    if (typeof allowChineseKeywords !== "boolean") {
+        allowChineseKeywords = false;
+    }
 
     return {
         rootFile,
         outFile,
         handleImportButNoPathError,
         handleNewlineInString,
-        handleInlineNewlines
+        handleInlineNewlines,
+        allowChineseKeywords,
     };
 }
 
@@ -240,11 +255,14 @@ export function makeAstFromSrc(options: {
     handleImportButNoPathError?: HandleImportButNoPathErrorConfigs,
     /** @default "panic" */
     handleNewlineInString?: HandleNewlineConfigs,
+    /** @default false */
+    allowChineseKeywords: boolean,
 }): { type: "success", validAst: KsmAst } | { type: "panic", panicedAst: KsmAst | null, panics: (KsmcCommonPanic | KsmcFsPanic)[] } {
     const {srcCode, fileAbsDir, importedAbsDirs, rootNodes} = options;
     const panics: (KsmcCommonPanic | KsmcFsPanic)[] = [];
     const handleImportButNoPathError = options.handleImportButNoPathError ?? "panic";
     const handleNewlineInString = options.handleNewlineInString ?? "panic";
+    const allowChineseKeywords = options.allowChineseKeywords ?? false;
     const getNodeById = <T extends RootNode>(id: Id<T>) => getNodeFromAstById(rootNodes, id);
     function makeDeclare<T extends RootNode>(node: T) {
         if (rootNodes[node.idToken.id]) {
@@ -414,7 +432,7 @@ export function makeAstFromSrc(options: {
         } else {
             const noSuchTokenRange = getRange(beginRow, beginCol);
             pos = beginPos, row = beginRow, col = beginCol;
-            return new KsmcNoSuchTokenError(new KsmcCommonPanic(`应为冒号。`, noSuchTokenRange));
+            return new KsmcNoSuchTokenError(new KsmcCommonPanic(`应为减号或破折号。`, noSuchTokenRange));
         }
     }
 
@@ -423,6 +441,9 @@ export function makeAstFromSrc(options: {
         const beginToken = srcCode.substring(pos, pos + 4) === "char" ? "char" : srcCode.substring(pos, pos + 2) === "角色" ? "角色" : null;
         if (beginToken !== null) {
             next(beginToken.length);
+            if (!allowChineseKeywords && beginToken === "角色") {
+                return new KsmcCommonPanic(`禁止使用中文关键词。（该报错可通过配置 allowChineseKeywords 以忽略。）`, getRange(beginRow, beginCol));
+            }
 
             skipInlineWS();
             const idResult = nextIdentifier<Char>();
@@ -449,6 +470,9 @@ export function makeAstFromSrc(options: {
         const beginToken = srcCode.substring(pos, pos + 4) === "clue" ? "clue" : srcCode.substring(pos, pos + 2) === "线索" ? "线索" : null;
         if (beginToken !== null) {
             next(beginToken.length);
+            if (!allowChineseKeywords && beginToken === "线索") {
+                return new KsmcCommonPanic(`禁止使用中文关键词。（该报错可通过配置 allowChineseKeywords 以忽略。）`, getRange(beginRow, beginCol));
+            }
 
             skipInlineWS();
             const clueIdResult = nextIdentifier<Clue>();
@@ -539,6 +563,9 @@ export function makeAstFromSrc(options: {
         const beginToken = srcCode.substring(pos, pos + 6) === "dialog" ? "dialog" : srcCode.substring(pos, pos + 2) === "对话" ? "对话" : null;
         if (beginToken !== null) {
             next(beginToken.length);
+            if (!allowChineseKeywords && beginToken === "对话") {
+                return new KsmcCommonPanic(`禁止使用中文关键词。（该报错可通过配置 allowChineseKeywords 以忽略。）`, getRange(beginRow, beginCol));
+            }
 
             skipInlineWS();
             const dialogIdResult = nextIdentifier<Dialog>();
@@ -649,6 +676,9 @@ export function makeAstFromSrc(options: {
         const beginToken = srcCode.substring(pos, pos + 4) === "note" ? "note" : srcCode.substring(pos, pos + 2) === "笔记" ? "笔记" : null;
         if (beginToken !== null) {
             next(beginToken.length);
+            if (!allowChineseKeywords && beginToken === "笔记") {
+                return new KsmcCommonPanic(`禁止使用中文关键词。（该报错可通过配置 allowChineseKeywords 以忽略。）`, getRange(beginRow, beginCol));
+            }
 
             skipInlineWS();
             const nextTokenResult = nextAOrB(nextIdentifier, () => nextAOrB(nextClueDeclare, nextCharDeclare));
@@ -689,6 +719,9 @@ export function makeAstFromSrc(options: {
         const beginToken = srcCode.substring(pos, pos + 6) === "import" ? "import" : srcCode.substring(pos, pos + 2) === "导入" ? "导入" : null;
         if (beginToken !== null) {
             next(beginToken.length);
+            if (!allowChineseKeywords && beginToken === "导入") {
+                return new KsmcCommonPanic(`禁止使用中文关键词。（该报错可通过配置 allowChineseKeywords 以忽略。）`, getRange(beginRow, beginCol));
+            }
 
             skipInlineWS();
             const importTargetPathResult = nextString();
@@ -728,7 +761,7 @@ export function makeAstFromSrc(options: {
                 return { type: "success", validAst: rootNodes };
             } else {
                 const { importSrcCode } = importSrcCodeResult;
-                return makeAstFromSrc({ srcCode: importSrcCode, fileAbsDir: importAbsDir, importedAbsDirs, rootNodes });
+                return makeAstFromSrc({ srcCode: importSrcCode, fileAbsDir: importAbsDir, importedAbsDirs, rootNodes, allowChineseKeywords });
             }
         } else {
             const noSuchTokenRange = getRange(beginRow, beginCol);
@@ -913,25 +946,40 @@ export function makeKsmdListFromAst(opitons: {
     return ksmdList;
 }
 
-export function writeOrCreateFileByPath(opitons: {
-    text: string, ksmConfigFileAbsDir: string, outPath: string
+export function writeFileByPath(opitons: {
+    text: string, rootAbsDir: string, outPath: string, flag: string,
 }): { type: "success", outAbsDir: string } | { type: "panic", panic: KsmcFsPanic } {
-    const { text, ksmConfigFileAbsDir: configAbsDir, outPath } = opitons;
+    const { text, rootAbsDir, outPath, flag } = opitons;
     let outAbsDir: string;
     try {
-        outAbsDir = path.resolve(configAbsDir, "../", outPath);
+        outAbsDir = path.resolve(rootAbsDir, "../", outPath);
     } catch (err) {
         return { type: "panic", panic: new KsmcFsPanic(
-            new KsmcCommonPanic(`尝试写入文件时，解析目标相对路径 ${configAbsDir} -> ${outPath} 出现未知错误。`, null), err
+            new KsmcCommonPanic(`尝试写入文件时，解析目标相对路径 ${rootAbsDir} -> ${outPath} 出现未知错误。`, null), err
         ), };
     }
+    
+    const writeResult = writeFileByAbsDir({text, absDir: outAbsDir, flag});
+
+    if (writeResult.type === "success") {
+        return { type: "success", outAbsDir };
+    } else {
+        return writeResult;
+    }
+}
+
+
+export function writeFileByAbsDir(opitons: {
+    text: string, absDir: string, flag: string,
+}): { type: "success" } | { type: "panic", panic: KsmcFsPanic } {
+    const { text, absDir, flag } = opitons;
     try {
-        fs.writeFileSync(outAbsDir, text, { encoding: "utf-8", flag: "w" });
+        fs.writeFileSync(absDir, text, { encoding: "utf-8", flag });
     } catch (err) {
         return { type: "panic", panic: new KsmcFsPanic(
-            new KsmcCommonPanic(`尝试向 ${outAbsDir} 写入文件时，出现未知错误。`, null), err
+            new KsmcCommonPanic(`尝试向 ${absDir} 写入文件时，出现未知错误。`, null), err
         ), };
     }
 
-    return { type: "success", outAbsDir };
+    return { type: "success" };
 }

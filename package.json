@@ -18,8 +18,7 @@
                 "id": "ksm",
                 "aliases": ["KSM", "ksm"],
                 "extensions": [".ksm"],
-                "configuration": "./language-configuration.json",
-                "filenames": ["ksmconfig.json"]
+                "configuration": "./language-configuration.json"
             }
         ],
         "grammars": [
@@ -33,12 +32,34 @@
             {
                 "command": "krill-script-marco.compile",
                 "title": "KSM: krill script marco - compile"
+            },
+            {
+                "command": "krill-script-marco.create-ksm-config-file",
+                "title": "KSM: krill script marco - create ksm configuration file"
             }
         ],
         "snippets": [
             {
                 "language": "ksm",
                 "path": "./ksmSnippets.json"
+            }
+        ],
+        "configuration":[
+            {
+                "title": "Settings",
+                "type": "object",
+                "properties": {
+                    "krillScriptMarco.showCharRefsOfSayCommands": {
+                        "type": "string",
+                        "enum": ["all", "none"],
+                        "markdownEnumDescriptions": [
+                            "查找全部引用",
+                            "不查找位于说话指令中的引用"
+                        ],
+                        "default": "none",
+                        "markdownDescription": "查看角色的引用时，是否应该查找位于说话指令中的引用。\n\n例如：角色“小明”有 1 个定义，引起 10 场对话，并且说过 500 句话。查找“小明”的所有引用时，若该配置项的值为`\"all\"`，会获取到小明的 511 个不同的引用，其中绝大多数都是不重要的。若此值为`\"none\"`，则能够屏蔽掉这些不重要的引用。"
+                    }
+                }
             }
         ]
     },

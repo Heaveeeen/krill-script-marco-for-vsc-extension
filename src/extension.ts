@@ -1,5 +1,5 @@
 import * as vsc from 'vscode';
-import { KsmcCommonPanic, KsmcFsPanic, makeAstFromSrc, KsmAst, makeKsmdListFromAst, KsmRange, getKsmConfigFromAbsDir, getSrcCodeFromPath, IdToken, Char, getNodeFromAstById, Dialog, Clue, writeOrCreateFileByPath, RootNode, KsmAstNoBrand, ReservedWords, Command } from './ksmc/parser';
+import { KsmcCommonPanic, KsmcFsPanic, makeAstFromSrc, KsmAst, makeKsmdListFromAst, KsmRange, getKsmConfigFromAbsDir, getSrcCodeFromPath, IdToken, Char, getNodeFromAstById, Dialog, Clue, writeFileByPath, RootNode, KsmAstNoBrand, ReservedWords, Command, writeFileByAbsDir } from './ksmc/parser';
 import { cast, staticAssert } from './utils';
 import path from 'path';
 
@@ -8,7 +8,7 @@ export function activate(context: vsc.ExtensionContext) {
 	let ast: KsmAst | null = null;
 
 	/*const wordPattern = /[^`~!@#%\^&\*\(\)\-=\+\[\{\]\}\\\|;:'",\.<>\/\?\s：“”]+/gu;;
-	const sematicTokensProvider = vsc.languages.registerDocumentSemanticTokensProvider("ksm", {
+	const sematicTokensProvider = vsc.languages.registerDocumentSemanticTokensProvider("*.ksm", {
 		async provideDocumentSemanticTokens(document, token): Promise<vsc.SemanticTokens | null> {
 			const builder = new vsc.SemanticTokensBuilder();
 			const text = document.getText();
@@ -30,7 +30,7 @@ export function activate(context: vsc.ExtensionContext) {
 		tokenModifiers: [],
 	});*/
 	
-	const hoverProvider = vsc.languages.registerHoverProvider("ksm", {
+	const hoverProvider = vsc.languages.registerHoverProvider("*.ksm", {
 		async provideHover(document, position, token): Promise<vsc.Hover | null> {
 			if (ast === null) { return null; }
 			const isHover = (range: KsmRange) => document.uri.fsPath === range.fileAbsDir && range.vscRange.contains(position);
@@ -44,7 +44,7 @@ export function activate(context: vsc.ExtensionContext) {
 				mdstr.appendCodeblock(`clue ${node.idToken.id} ${JSON.stringify(node.desc)}`, "ksm");
 				const descLines = node.desc.split("\\n");
 				if (descLines.length > 0) { 
-					mdstr.appendMarkdown(`*description:* \n\n**${descLines[0]}**\n\n${descLines.slice(1).join("  \n")}`);
+					mdstr.appendMarkdown(`*描述:* \n\n**${descLines[0]}**\n\n${descLines.slice(1).join("  \n")}`);
 				}
 				return new vsc.Hover(mdstr);
 			};
@@ -121,7 +121,7 @@ export function activate(context: vsc.ExtensionContext) {
 		},
 	});
 
-	const definitionProvider = vsc.languages.registerDefinitionProvider("ksm", {
+	const definitionProvider = vsc.languages.registerDefinitionProvider("*.ksm", {
 		async provideDefinition(document, position, token): Promise<vsc.Location | null> {
 			if (ast === null) { return null; }
 			const isHover = (range: KsmRange) => document.uri.fsPath === range.fileAbsDir && range.vscRange.contains(position);
@@ -289,16 +289,25 @@ export function activate(context: vsc.ExtensionContext) {
 		}
 	};
 
-	const referenceProvider = vsc.languages.registerReferenceProvider("ksm", {
+	const referenceProvider = vsc.languages.registerReferenceProvider("*.ksm", {
 		async provideReferences(document, position, context, token): Promise<vsc.Location[] | null> {
 			if (ast === null) { return null; }
 			const isHover = (range: KsmRange) => document.uri.fsPath === range.fileAbsDir && range.vscRange.contains(position);
 			const getLocation = (range: KsmRange) => range.fileAbsDir !== null ? new vsc.Location(vsc.Uri.file(range.fileAbsDir), range.vscRange) : null;
 			const refs: vsc.Location[] = [];
+			let showCharRefsOfSayCommands = vsc.workspace.getConfiguration("krillScriptMarco").get("showCharRefsOfSayCommands");
+			if (
+				showCharRefsOfSayCommands !== "none" &&
+				showCharRefsOfSayCommands !== "all"
+			) {
+				showCharRefsOfSayCommands = "none";
+			}
 			const add = (range: KsmRange, type: RefType) => {
 				const location = getLocation(range);
 				if (location !== null) {
-					refs.push(location);
+					if (showCharRefsOfSayCommands === "all" || type !== "say-char") {
+						refs.push(location);
+					}
 				}
 			};
 			forEachRefOfHoverRanges({
@@ -355,7 +364,7 @@ export function activate(context: vsc.ExtensionContext) {
 		return { ok: false, message: "无法重命名该位置。" };
 	};
 
-	const renameProvider = vsc.languages.registerRenameProvider("ksm", {
+	const renameProvider = vsc.languages.registerRenameProvider("*.ksm", {
 		async prepareRename(document, position, token): Promise<vsc.Range> {
 			const prepareRenameResult = prepareRenameOrNot(document, position, token);
 			if (prepareRenameResult.ok) {
@@ -384,7 +393,7 @@ export function activate(context: vsc.ExtensionContext) {
 		},
 	});
 
-	const completionProvider = vsc.languages.registerCompletionItemProvider("ksm", {
+	const completionProvider = vsc.languages.registerCompletionItemProvider("*.ksm", {
 		async provideCompletionItems(document, position, token, context): Promise<vsc.CompletionItem[] | null> {
 			if (ast === null) { return null; }
 			const compItems: vsc.CompletionItem[] = [];
@@ -403,7 +412,7 @@ export function activate(context: vsc.ExtensionContext) {
 					label.description = `clue ${node.idToken.id} ${JSON.stringify(node.desc)}`;
 					const descLines = node.desc.split("\\n");
 					if (descLines.length > 0) { 
-						label.description += `*description:* \n\n**${descLines[0]}**\n\n${descLines.slice(1).join("  \n")}`;
+						label.description += `*描述:* \n\n**${descLines[0]}**\n\n${descLines.slice(1).join("  \n")}`;
 					}
 					kind = vsc.CompletionItemKind.Variable;
 				} else {
@@ -432,7 +441,7 @@ export function activate(context: vsc.ExtensionContext) {
 
 	const nullRange = new vsc.Range(new vsc.Position(0, 0), new vsc.Position(0, 0));
 
-	const symbolProvider = vsc.languages.registerDocumentSymbolProvider("ksm", {
+	const symbolProvider = vsc.languages.registerDocumentSymbolProvider("*.ksm", {
 		async provideDocumentSymbols(document, token): Promise<vsc.DocumentSymbol[] | null> {
 			if (ast === null) { return null; }
 			const symbols: vsc.DocumentSymbol[] = [];
@@ -500,7 +509,8 @@ export function activate(context: vsc.ExtensionContext) {
 		},
 	}, {});
 
-	{//#region compile
+	//#region compile
+	{
 		const compileCommandDisposable = vsc.commands.registerCommand('krill-script-marco.compile', () => {
 
 			const terminal = vsc.window.createTerminal("KST 测试编译");
@@ -539,6 +549,7 @@ export function activate(context: vsc.ExtensionContext) {
 				rootNodes: {} as KsmAst,
 				handleImportButNoPathError: ksmConfig.handleImportButNoPathError,
 				handleNewlineInString: ksmConfig.handleNewlineInString,
+				allowChineseKeywords: ksmConfig.allowChineseKeywords,
 			});
 			if (astResult.type === "panic") {
 				print(`生成AST出现错误。`);
@@ -570,10 +581,11 @@ export function activate(context: vsc.ExtensionContext) {
 			print(`生成 KSMD 成功。`);
 
 			print(`写入编译输出文件……`);
-			const writeResult = writeOrCreateFileByPath({
+			const writeResult = writeFileByPath({
 				text: ksmdString,
-				ksmConfigFileAbsDir,
+				rootAbsDir: ksmConfigFileAbsDir,
 				outPath: ksmConfig.outFile,
+				flag: "w",
 			});
 			if (writeResult.type === "panic") {
 				print(`写入编译输出文件出现错误。`);
@@ -587,9 +599,42 @@ export function activate(context: vsc.ExtensionContext) {
 		});
 
 		context.subscriptions.push(compileCommandDisposable);
-	}//#endregion
+	}
+	//#endregion
 
-	{//#region on change
+	//#region create ksm config file
+	{
+		const createConfigCommandDisposable = vsc.commands.registerCommand("krill-script-marco.create-ksm-config-file", () => {
+			const rootAbsDir = vsc.workspace.workspaceFolders?.[0].uri.fsPath;
+			if (rootAbsDir === undefined) {
+				vsc.window.showErrorMessage(`无法创建配置文件，未检测到有效的工作区文件夹。`);
+				return;
+			}
+			const configAbsDir = path.resolve(rootAbsDir, "./ksmconfig.json");
+			const writeResult = writeFileByAbsDir({
+				text: `{
+    "rootFile": "./foo.ksm",
+    "outFile": "./dist/foo.txt",
+    "handleImportButNoPathError": "panic",
+    "handleNewlineInString": "panic",
+    "handleInlineNewlines": "panic",
+    "allowChineseKeywords": true
+}`,
+				absDir: configAbsDir,
+				flag: "wx",
+			});
+
+			if (writeResult.type === "success") {
+				vsc.window.showInformationMessage(`已成功在 ${configAbsDir} 创建 KSM 默认配置文件`);
+			} else {
+				vsc.window.showErrorMessage(`${writeResult.panic.message}\n\n可能是因为已经存在配置文件。`);
+			}
+		});
+	}
+	//#endregion
+
+	//#region on change
+	{
 		const diagnosticCollection = vsc.languages.createDiagnosticCollection();
 
 		const reportACommonOrFsPanic = (commonOrFsPanic: KsmcCommonPanic | KsmcFsPanic) => {
@@ -602,6 +647,9 @@ export function activate(context: vsc.ExtensionContext) {
 				diagnosticCollection.set(uri, [diagnostic]);
 			} else {
 				console.error(panic);
+				if (commonOrFsPanic instanceof KsmcFsPanic) {
+					console.error(commonOrFsPanic.fsErr);
+				}
 				vsc.window.showErrorMessage(panic.message);
 			}
 		};
@@ -642,6 +690,7 @@ export function activate(context: vsc.ExtensionContext) {
 					rootNodes: {} as KsmAst,
 					handleImportButNoPathError: ksmConfig.handleImportButNoPathError,
 					handleNewlineInString: ksmConfig.handleNewlineInString,
+					allowChineseKeywords: ksmConfig.allowChineseKeywords,
 				});
 				if (astResult.type === "panic") {
 					astResult.panics.forEach(panic => reportACommonOrFsPanic(panic));
@@ -667,6 +716,7 @@ export function activate(context: vsc.ExtensionContext) {
 		vsc.workspace.onDidDeleteFiles(updateSyntaxCheck);
 		vsc.workspace.onDidRenameFiles(updateSyntaxCheck);
 	}
+	//#endregion
 
 }
 
