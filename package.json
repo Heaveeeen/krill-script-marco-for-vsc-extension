@@ -4,6 +4,10 @@
     "description": "base support for Krill Script Marco",
     "version": "0.0.1",
     "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/Heaveeeen/krill-script-marco-for-vsc-extension.git"
+    },
     "engines": {
         "vscode": "^1.106.1"
     },
