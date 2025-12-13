@@ -407,8 +407,9 @@ export function makeAstFromSrc(options: {
 
     function nextCharDeclare(): Char | KsmcNoSuchTokenError | KsmcCommonPanic {
         const beginPos = pos, beginRow = row, beginCol = col;
-        if (srcCode.substring(pos, pos + 4) === "char") {
-            next(); next(); next(); next();
+        const beginToken = srcCode.substring(pos, pos + 4) === "char" ? "char" : srcCode.substring(pos, pos + 2) === "角色" ? "角色" : null;
+        if (beginToken !== null) {
+            next(beginToken.length);
 
             skipInlineWS();
             const idResult = nextIdentifier<Char>();
@@ -432,8 +433,9 @@ export function makeAstFromSrc(options: {
 
     function nextClueDeclare(): Clue | KsmcNoSuchTokenError | KsmcCommonPanic {
         const beginPos = pos, beginRow = row, beginCol = col;
-        if (srcCode.substring(pos, pos + 4) === "clue") {
-            next(); next(); next(); next();
+        const beginToken = srcCode.substring(pos, pos + 4) === "clue" ? "clue" : srcCode.substring(pos, pos + 2) === "线索" ? "线索" : null;
+        if (beginToken !== null) {
+            next(beginToken.length);
 
             skipInlineWS();
             const clueIdResult = nextIdentifier<Clue>();
@@ -521,8 +523,9 @@ export function makeAstFromSrc(options: {
 
     function nextDialogDeclare(): Dialog | KsmcNoSuchTokenError | KsmcCommonPanic {
         const beginPos = pos, beginRow = row, beginCol = col;
-        if (srcCode.substring(pos, pos + 6) === "dialog") {
-            next(); next(); next(); next(); next(); next();
+        const beginToken = srcCode.substring(pos, pos + 6) === "dialog" ? "dialog" : srcCode.substring(pos, pos + 2) === "对话" ? "对话" : null;
+        if (beginToken !== null) {
+            next(beginToken.length);
 
             skipInlineWS();
             const dialogIdResult = nextIdentifier<Dialog>();
@@ -630,8 +633,9 @@ export function makeAstFromSrc(options: {
 
     function nextNote(): Note | KsmcNoSuchTokenError | KsmcCommonPanic {
         const beginPos = pos, beginRow = row, beginCol = col;
-        if (srcCode.substring(pos, pos + 4) === "note") {
-            next(); next(); next(); next();
+        const beginToken = srcCode.substring(pos, pos + 4) === "note" ? "note" : srcCode.substring(pos, pos + 2) === "笔记" ? "笔记" : null;
+        if (beginToken !== null) {
+            next(beginToken.length);
 
             skipInlineWS();
             const nextTokenResult = nextAOrB(nextIdentifier, () => nextAOrB(nextClueDeclare, nextCharDeclare));
@@ -669,8 +673,9 @@ export function makeAstFromSrc(options: {
     function nextImport(options: {handleImportButNoPathError: "ignore" | "warn-to-console" | "panic"}): ReturnType<typeof makeAstFromSrc> | KsmcNoSuchTokenError | KsmcCommonPanic | KsmcFsPanic {
         const { handleImportButNoPathError: importButNoPathErrorLevel } = options;
         const beginPos = pos, beginRow = row, beginCol = col;
-        if (srcCode.substring(pos, pos + 6) === "import") {
-            next(); next(); next(); next(); next(); next();
+        const beginToken = srcCode.substring(pos, pos + 6) === "import" ? "import" : srcCode.substring(pos, pos + 2) === "导入" ? "导入" : null;
+        if (beginToken !== null) {
+            next(beginToken.length);
 
             skipInlineWS();
             const importTargetPathResult = nextString();

@@ -81,11 +81,11 @@
       "patterns": [
         {
           "name": "keyword.control.ksm",
-          "match": "\\b(?:import|note)\\b"
+          "match": "\\b(?:import|note|导入|笔记)\\b"
         },
         {
           "name": "keyword.declaration.ksm",
-          "match": "\\b(?:char|clue|dialog)\\b"
+          "match": "\\b(?:char|clue|dialog|角色|线索|对话)\\b"
         }
       ]
     },
