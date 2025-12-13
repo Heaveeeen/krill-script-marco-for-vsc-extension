@@ -658,7 +658,7 @@ export function activate(context: vsc.ExtensionContext) {
 		const updateSyntaxCheck = (() => {
 			let timeOut: ReturnType<typeof setTimeout> | null;
 
-			const checkSyntax = () => {
+			const checkSyntax = async () => {
 				// 初始化错误报告、悬停等所有提示资源
 				diagnosticCollection.clear();
 
@@ -668,7 +668,16 @@ export function activate(context: vsc.ExtensionContext) {
 				const ksmConfig = getKsmConfigFromAbsDir(ksmConfigFileAbsDir);
 				if (!ksmConfig) { return; }
 				if (ksmConfig instanceof KsmcFsPanic) {
-					reportACommonOrFsPanic(ksmConfig);
+					let isKsmConfigFileExist: boolean;
+					try {
+						await vsc.workspace.fs.stat(vsc.Uri.file(ksmConfigFileAbsDir));
+						isKsmConfigFileExist = true;
+					} catch {
+						isKsmConfigFileExist = false;
+					}
+					if (isKsmConfigFileExist) {
+						reportACommonOrFsPanic(ksmConfig);
+					}
 					return;
 				}
 

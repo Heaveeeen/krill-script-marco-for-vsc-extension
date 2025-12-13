@@ -1,73 +1,91 @@
 # krill-script-marco README
 
-这个自述文档是 yo 的模板自带的，各处的一堆注释都是自带的……我懒得改了。爱谁谁吧。
-
-This is the README for your extension "krill-script-marco". After writing up a brief description, we recommend including the following sections.
+KSM 是一种 DSL。这种 DSL 仅供自用，没有完备、健壮的语法。
 
 ## Features
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+提供对 KSM 基本的语言支持，包括语法高亮、自动补齐、引用追踪、语法检查等，并集成了一个编译器。
 
-For example if there is an image subfolder under your extension project workspace:
-
-\!\[feature X\]\(images/feature-x.png\)
-
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
-
-## Requirements
-
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+按`Ctrl+Shift+P`打开命令面板，运行`KSM: krill script marco - create ksm configuration file`创建一个 KSM 配置文件以激活 KSM 语法分析和编译功能。
 
 ## Extension Settings
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
-
-For example:
-
-This extension contributes the following settings:
-
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
+* `krillScriptMarco.showCharRefsOfSayCommands`: 查看角色的引用时，是否应该查找位于说话指令中的引用。有`"none"`和`"all"`两种可选的值。
 
 ## Known Issues
 
-Calling out known issues can help limit users opening duplicate issues against your extension.
+通过`language-configuration.json`的`wordPattern`字段配置的分词功能无法正常使用，貌似是因为这个字段的正则表达式不支持 unicode 模式，所以无法依赖中文冒号和引号字符等进行分词，但这些字符在 KSM 的语法中都是合法的分词符。
 
 ## Release Notes
 
-Users appreciate release notes as you update your extension.
+### a0.0.0
 
-### 1.0.0
-
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
+首个版本，支持基本的语言功能。
 
 ---
 
-## Following extension guidelines
+# KSM 说明
 
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
+KSM 是一种 DSL，用于开发特定的文字冒险游戏。这种 DSL 仅供自用，没有完备、健壮的语法。
 
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
+有三种基本的顶级语句：char, clue, dialog，语句靠换行分割。语句外的空白字符会被忽略。
 
-## Working with Markdown
+标识符可以包含大小写英文字母、数字、下划线、任何语言中的字母（例如汉字），且不能由数字开头，例如`tom`, `the_king`, `哈姆雷特`, `配角1`。
 
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
+标识符不能是保留字，保留字有`char`, `clue`, `dialog`, `note`, `import`和它们的中文版本`角色`, `线索`, `对话`, `笔记`, `导入`（中文版本的关键字可以跟英文版本互换）。所有标识符都是全局的。
 
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
+`char <标识符> "<角色名>"`声明一个角色，例如`char 华盛顿 "乔治·华盛顿"`。
 
-## For more information
+```
+clue <标识符> "<线索描述>" {
+    <角色标识符>-<对话标识符 | 对话声明语句>
+    ...
+}
+```
+声明一条线索。
+```
+clue 血字 "在尸体旁边发现了一些字……用血写成的。\n可能是凶手的名字。" {
+    警官A - 对话005
+    嫌疑人 -- dialog 对话010 {
+        主角:对此你想说什么？
+        嫌疑人:冤枉！
+    }
+    警官B —— 对话012
+}
+线索 由中文版本关键字声明的线索 "这个线索不能问别人，所以后面花括号是空的" {}
+```
+这里的减号`-`可以用破折号`—`代替，且可以重复任意多次。例如`角色1 --—— 对话1`。
 
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
+```
+dialog <对话标识符> {
+    <<角色标识符>:<说话的内容，任何文本直到行末> | note <线索声明或标识符 | 角色声明或标识符>>
+    ...
+}
+```
+声明一场对话。
+```
+dialog myDialogue {
+    马可：你好。
+    ：近来身体还行吧？
+    詹姆斯：还行……
+    ：胃病又犯了。
+    note 詹姆斯 // 解锁一个联络人
+    詹姆斯：你看报了吗？\n挺吓人的。就那个"黑老大"……
+    马可：乐
+    马可：好似
+    note 报纸线索1 // 获得一个线索
+    詹姆斯：你知道贝内特吗？
+    笔记 角色 贝内特 "贝内特";
+    note clue 新任黑老大 "新任黑老大，贝内特上任了……\n有点蹊跷。" {
+        詹姆斯 - dialog 詹姆斯瑞平贝内特 {
+            詹姆斯：牛逼
+        }
+    }
+}
+```
 
-**Enjoy!**
+`import "<url>"`是特殊的顶级语句，它用来导入其他文件。每个文件只会导入一次。这东西实现得比较粗糙，我感觉应该是没啥大问题，但也说不定会包含一些未定义行为。还是建议谨慎使用。
+
+`//`直到行末的内容是单行注释。没有多行注释。
+
+KSMC 是 KSM 的编译器。它需要通过一个`ksmconfig.json`文件来配置编译的入口、编译选项等。
