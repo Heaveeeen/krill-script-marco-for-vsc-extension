@@ -1,5 +1,5 @@
 import * as vsc from 'vscode';
-import { KsmcCommonPanic, KsmcFsPanic, makeAstFromSrc, KsmAst, makeKsmdListFromAst, KsmRange, getKsmConfigFromAbsDir, getSrcCodeFromPath, IdToken, Char, getNodeFromAstById, Dialog, Clue, writeOrCreateFileByPath, RootNode, KsmAstNoBrand, ReservedWords } from './ksmc/parser';
+import { KsmcCommonPanic, KsmcFsPanic, makeAstFromSrc, KsmAst, makeKsmdListFromAst, KsmRange, getKsmConfigFromAbsDir, getSrcCodeFromPath, IdToken, Char, getNodeFromAstById, Dialog, Clue, writeOrCreateFileByPath, RootNode, KsmAstNoBrand, ReservedWords, Command } from './ksmc/parser';
 import { cast, staticAssert } from './utils';
 import path from 'path';
 
@@ -31,7 +31,7 @@ export function activate(context: vsc.ExtensionContext) {
 	});*/
 	
 	const hoverProvider = vsc.languages.registerHoverProvider("ksm", {
-		provideHover(document, position, token): vsc.Hover | null {
+		async provideHover(document, position, token): Promise<vsc.Hover | null> {
 			if (ast === null) { return null; }
 			const isHover = (range: KsmRange) => document.uri.fsPath === range.fileAbsDir && range.vscRange.contains(position);
 			const getCharHover = (node: Char) => {
@@ -177,11 +177,13 @@ export function activate(context: vsc.ExtensionContext) {
 		},
 	});
 
-	function forEachRefRangesOfHover(opitons: {
+	type RefType = "char-declare" | "clue-declare" | "ask-char" | "ask-dialog" | "dialog-declare" | "say-char" | "note-char" | "note-clue";
+
+	function forEachRefOfHoverRanges(opitons: {
 		ast: KsmAst
 		includeDeclaration: boolean,
 		isHover: (range: KsmRange) => boolean,
-		callback: (range: KsmRange) => void,
+		callback: (range: KsmRange, type: RefType) => void,
 	}): void {
 		const { ast, includeDeclaration, isHover, callback } = opitons;
 		// 获取当前的焦点
@@ -241,42 +243,42 @@ export function activate(context: vsc.ExtensionContext) {
 			if (node.type === "char") {
 				if (includeDeclaration) {
 					if (hoverDeclare.type === "char" && hoverId ===  node.idToken.id) {
-						callback(node.idToken.range);
+						callback(node.idToken.range, "char-declare");
 					}
 				}
 			} else if (node.type === "clue") {
 				if (includeDeclaration) {
 					if (hoverDeclare.type === "clue" && hoverId ===  node.idToken.id) {
-						callback(node.idToken.range);
+						callback(node.idToken.range, "clue-declare");
 					}
 				}
 				for (const ask of node.asks) {
 					if (hoverDeclare.type === "char" && hoverId === ask.charIdToken.id) {
-						callback(ask.charIdToken.range);
+						callback(ask.charIdToken.range, "ask-char");
 					}
 					if (hoverDeclare.type === "dialog" && hoverId === ask.dialogIdTokenOrDeclareId.id) {
 						if (ask.dialogIdTokenOrDeclareId.type === "idToken") {
-							callback(ask.dialogIdTokenOrDeclareId.range);
+							callback(ask.dialogIdTokenOrDeclareId.range, "ask-dialog");
 						}
 					}
 				}
 			} else if (node.type === "dialog") {
 				if (includeDeclaration) {
 					if (hoverDeclare.type === "dialog" && hoverId ===  node.idToken.id) {
-						callback(node.idToken.range);
+						callback(node.idToken.range, "dialog-declare");
 					}
 				}
 				for (const command of node.commands) {
 					if (command.type === "say") {
 						if (command.charIdToken !== null && hoverDeclare.type === "char" && hoverId === command.charIdToken.id) {
-							callback(command.charIdToken.range);
+							callback(command.charIdToken.range, "say-char");
 						}
 					} else {
 						staticAssert<"note">(command.type);
 						if (command.targetIdTokenOrDeclareId.type === "idToken") {
 							const noteTarget = cast<Char | Clue | null, Char | Clue>(getNodeFromAstById(ast, command.targetIdTokenOrDeclareId.id));
 							if (hoverDeclare.type === noteTarget.type && hoverId === command.targetIdTokenOrDeclareId.id) {
-								callback(command.targetIdTokenOrDeclareId.range);
+								callback(command.targetIdTokenOrDeclareId.range, noteTarget.type === "char" ? "note-char" : "note-clue");
 							}
 						}
 					}
@@ -290,21 +292,40 @@ export function activate(context: vsc.ExtensionContext) {
 	const referenceProvider = vsc.languages.registerReferenceProvider("ksm", {
 		async provideReferences(document, position, context, token): Promise<vsc.Location[] | null> {
 			if (ast === null) { return null; }
-			const refs: vsc.Location[] = [];
 			const isHover = (range: KsmRange) => document.uri.fsPath === range.fileAbsDir && range.vscRange.contains(position);
 			const getLocation = (range: KsmRange) => range.fileAbsDir !== null ? new vsc.Location(vsc.Uri.file(range.fileAbsDir), range.vscRange) : null;
-			const add = (range: KsmRange) => {
+			const refsByType: Record<RefType, vsc.Location[]> = {
+				"char-declare": [],
+				"clue-declare": [],
+				"dialog-declare": [],
+				"ask-char": [],
+				"ask-dialog": [],
+				"note-char": [],
+				"note-clue": [],
+				"say-char": [],
+			};
+			const add = (range: KsmRange, type: RefType) => {
 				const location = getLocation(range);
 				if (location !== null) {
-					refs.push(location);
+					refsByType[type].push(location);
 				}
 			};
-			forEachRefRangesOfHover({
+			forEachRefOfHoverRanges({
 				ast,
 				includeDeclaration: context.includeDeclaration,
 				isHover,
 				callback: add,
 			});
+			const refs: vsc.Location[] = [
+				...refsByType["char-declare"],
+				...refsByType["clue-declare"],
+				...refsByType["dialog-declare"],
+				...refsByType["ask-char"],
+				...refsByType["ask-dialog"],
+				...refsByType["note-char"],
+				...refsByType["note-clue"],
+				...refsByType["say-char"],
+			];
 			return refs;
 		},
 	});
@@ -372,7 +393,7 @@ export function activate(context: vsc.ExtensionContext) {
 				if (range.fileAbsDir === null) { return; }
 				edit.replace(vsc.Uri.file(range.fileAbsDir), range.vscRange, newName);
 			};
-			forEachRefRangesOfHover({
+			forEachRefOfHoverRanges({
 				ast,
 				includeDeclaration: true,
 				isHover,
@@ -381,6 +402,122 @@ export function activate(context: vsc.ExtensionContext) {
 			return edit;
 		},
 	});
+
+	const completionProvider = vsc.languages.registerCompletionItemProvider("ksm", {
+		async provideCompletionItems(document, position, token, context): Promise<vsc.CompletionItem[] | null> {
+			if (ast === null) { return null; }
+			const compItems: vsc.CompletionItem[] = [];
+
+			ReservedWords.forEach(word => compItems.push(new vsc.CompletionItem(word, vsc.CompletionItemKind.Keyword)));
+			for (const node of Object.values(ast as KsmAstNoBrand)) {
+				const label: vsc.CompletionItemLabel = {
+					label: node.idToken.id,
+					//detail: `${node.type} ${node.idToken.id}`,
+				};
+				let kind: vsc.CompletionItemKind;
+				if (node.type === "char") {
+					label.description = `char ${node.idToken.id} ${JSON.stringify(node.name)}`;
+					kind = vsc.CompletionItemKind.EnumMember;
+				} else if (node.type === "clue") {
+					label.description = `clue ${node.idToken.id} ${JSON.stringify(node.desc)}`;
+					const descLines = node.desc.split("\\n");
+					if (descLines.length > 0) { 
+						label.description += `*description:* \n\n**${descLines[0]}**\n\n${descLines.slice(1).join("  \n")}`;
+					}
+					kind = vsc.CompletionItemKind.Variable;
+				} else {
+					staticAssert<"dialog">(node.type);
+					let txt = "";
+					if (node.commands.length > 0) {
+						txt = `\n${
+							node.commands.map(command => {
+								if (command.type === "say") {
+									return `    ${command.charId}: ${command.text}`;
+								} else {
+									return `    note ${command.targetIdTokenOrDeclareId.id}`;
+								}
+							}).join("\n")
+						}\n`;
+					}
+					label.description = `dialog ${node.idToken.id} {${txt}}`;
+					kind = vsc.CompletionItemKind.Function;
+				}
+				compItems.push(new vsc.CompletionItem(label, kind));
+			}
+
+			return compItems;
+		},
+	});
+
+	const nullRange = new vsc.Range(new vsc.Position(0, 0), new vsc.Position(0, 0));
+
+	const symbolProvider = vsc.languages.registerDocumentSymbolProvider("ksm", {
+		async provideDocumentSymbols(document, token): Promise<vsc.DocumentSymbol[] | null> {
+			if (ast === null) { return null; }
+			const symbols: vsc.DocumentSymbol[] = [];
+			const getCommandDesc = (command: Command) => command.type === "say" ?
+				`${command.charId}：${command.text}` :
+				`note ${command.targetIdTokenOrDeclareId.id}`;
+			const chars = new vsc.DocumentSymbol("[characters]", "", vsc.SymbolKind.Enum, nullRange, nullRange);
+			symbols.push(chars);
+			for (const node of Object.values(ast as KsmAstNoBrand)) {
+				if (document.uri.fsPath !== node.range.fileAbsDir) { continue; }
+				if (node.type === "char") {
+					chars.children.push(new vsc.DocumentSymbol(
+						node.idToken.id,
+						node.name,
+						vsc.SymbolKind.EnumMember,
+						node.range.vscRange,
+						node.idToken.range.vscRange,
+					));
+				} else if (node.type === "clue") {
+					const clue = new vsc.DocumentSymbol(
+						node.idToken.id,
+						node.desc.split("\\n")[0],
+						vsc.SymbolKind.Variable,
+						node.range.vscRange,
+						node.idToken.range.vscRange
+					);
+					symbols.push(clue);
+					for (const ask of node.asks) {
+						clue.children.push(new vsc.DocumentSymbol(
+							`${ask.charIdToken.id}：${ask.dialogIdTokenOrDeclareId.id}`,
+							"ask",
+							vsc.SymbolKind.Event,
+							ask.range.vscRange,
+							ask.range.vscRange,
+						));
+					}
+				} else if (node.type === "dialog") {
+					const dialog = new vsc.DocumentSymbol(
+						node.idToken.id,
+						node.commands.length === 0 ? "[empty dialog]" : getCommandDesc(node.commands[0]),
+						vsc.SymbolKind.Function,
+						node.range.vscRange,
+						node.idToken.range.vscRange
+					);
+					symbols.push(dialog);
+					for (const command of node.commands) {
+						dialog.children.push(new vsc.DocumentSymbol(
+							getCommandDesc(command),
+							command.type,
+							vsc.SymbolKind.String,
+							command.range.vscRange,
+							command.range.vscRange
+						));
+					}
+				} else {
+					staticAssert<never>(node);
+				}
+			}
+			if (chars.children.length === 0) {
+				chars.detail = "[empty]";
+			} else {
+				chars.detail = `[${chars.children.length}]`;
+			}
+			return symbols;
+		},
+	}, {});
 
 	{//#region compile
 		const compileCommandDisposable = vsc.commands.registerCommand('krill-script-marco.compile', () => {

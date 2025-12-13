@@ -18,7 +18,8 @@
                 "id": "ksm",
                 "aliases": ["KSM", "ksm"],
                 "extensions": [".ksm"],
-                "configuration": "./language-configuration.json"
+                "configuration": "./language-configuration.json",
+                "filenames": ["ksmconfig.json"]
             }
         ],
         "grammars": [
@@ -32,6 +33,12 @@
             {
                 "command": "krill-script-marco.compile",
                 "title": "KSM: krill script marco - compile"
+            }
+        ],
+        "snippets": [
+            {
+                "language": "ksm",
+                "path": "./ksmSnippets.json"
             }
         ]
     },

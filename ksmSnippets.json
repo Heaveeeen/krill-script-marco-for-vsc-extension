@@ -1,0 +1,27 @@
+{
+    "Character Declaration": {
+        "prefix": ["char", "角色", "declare char"],
+        "body": ["char ${1:id} \"${0:name}\""],
+        "description": "Declare a new character"
+    },
+    "Clue Declaration": {
+        "prefix": ["clue", "线索", "declare clue"],
+        "body": ["clue ${2:id} \"${1:description}\" {", "\t${0:asks}", "}"],
+        "description": "Declare a new clue"
+    },
+    "Dialog Declaration": {
+        "prefix": ["dialog", "对话", "declare dialog"],
+        "body": ["dialog ${1:id} {", "\t${0:commands}", "}"],
+        "description": "Declare a new dialog"
+    },
+    "Import": {
+        "prefix": ["import", "导入"],
+        "body": ["import \"${0:path}\""],
+        "description": "Import another KSM file"
+    },
+    "Note": {
+        "prefix": ["note", "笔记"],
+        "body": ["note ${0:id}"],
+        "description": "Note a clue or a char"
+    }
+}

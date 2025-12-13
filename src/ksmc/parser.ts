@@ -316,7 +316,6 @@ export function makeAstFromSrc(options: {
         const beginPos = pos, beginRow = row, beginCol = col;
         if (peek() && idBeginReg.test(peek() as string)) {
             // 匹配名称
-            let beginPos = pos;
             while (next() && idBodyReg.test(peek())) {}
             let id = srcCode.substring(beginPos, pos) as Id<T>;
             if (!ReservedWords.has(id)) {
@@ -405,6 +404,20 @@ export function makeAstFromSrc(options: {
         }
     }
 
+    type Dash = "-" | "—"
+    function nextDash(): Dash | KsmcNoSuchTokenError {
+        const beginPos = pos, beginRow = row, beginCol = col;
+        if (peek() === "-" || peek() === "—") {
+            while (next() === "-" || peek() === "—") {}
+            const dash = srcCode.substring(beginPos, pos) as Dash;
+            return dash;
+        } else {
+            const noSuchTokenRange = getRange(beginRow, beginCol);
+            pos = beginPos, row = beginRow, col = beginCol;
+            return new KsmcNoSuchTokenError(new KsmcCommonPanic(`应为冒号。`, noSuchTokenRange));
+        }
+    }
+
     function nextCharDeclare(): Char | KsmcNoSuchTokenError | KsmcCommonPanic {
         const beginPos = pos, beginRow = row, beginCol = col;
         const beginToken = srcCode.substring(pos, pos + 4) === "char" ? "char" : srcCode.substring(pos, pos + 2) === "角色" ? "角色" : null;
@@ -479,8 +492,8 @@ export function makeAstFromSrc(options: {
                     if (charIdResult instanceof KsmcNoSuchTokenError) { return charIdResult.panic; }
 
                     skipInlineWS();
-                    const colonResult = nextColon();
-                    if (colonResult instanceof KsmcNoSuchTokenError) { return colonResult.panic; }
+                    const dashResult = nextDash();
+                    if (dashResult instanceof KsmcNoSuchTokenError) { return dashResult.panic; }
                     
                     skipInlineWS();
                     const dialogIdOrDeclareResult = nextAOrB(nextIdentifier, nextDialogDeclare);
