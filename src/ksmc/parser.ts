@@ -266,7 +266,7 @@ export function makeAstFromSrc(options: {
     const getNodeById = <T extends RootNode>(id: Id<T>) => getNodeFromAstById(rootNodes, id);
     function makeDeclare<T extends RootNode>(node: T) {
         if (rootNodes[node.idToken.id]) {
-            return new KsmcCommonPanic(`重复声明了标识符“${node.idToken}”`, node.range);
+            return new KsmcCommonPanic(`重复声明了标识符“${node.idToken.id}”`, node.range);
         } else {
             return rootNodes[node.idToken.id] = node as T;
         }
