@@ -52,6 +52,12 @@ interface KsmConfig {
 
 新增处理字符串内缩进的功能。
 
+### 0.0.4
+
+修复字符串缩进的一个小 bug。
+
+为`ksmconfig.json`加入了一些简单的报错机制。
+
 ---
 
 # KSM 说明

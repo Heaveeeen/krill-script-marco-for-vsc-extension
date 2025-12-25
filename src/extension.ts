@@ -521,9 +521,11 @@ export function activate(context: vsc.ExtensionContext) {
 			if (!rootFolder) { return; }
 			const ksmConfigFileAbsDir = path.resolve(rootFolder.uri.fsPath, "./ksmconfig.json");
 			const ksmConfig = getKsmConfigFromAbsDir(ksmConfigFileAbsDir);
-			if (!ksmConfig) { return; }
 			if (ksmConfig instanceof KsmcFsPanic) {
 				print(`KSM 编译失败：无法打开配置文件。请确保工作区根目录下存在 ksmconfig.json 。\n${ksmConfig.message}`);
+				return;
+			} else if (ksmConfig instanceof KsmcCommonPanic) {
+				print(`KSM 编译失败：ksmconfig.json 配置文件出现错误。\n${ksmConfig.message}`);
 				return;
 			}
 
@@ -668,8 +670,7 @@ export function activate(context: vsc.ExtensionContext) {
 				if (!rootFolder) { return; }
 				const ksmConfigFileAbsDir = path.resolve(rootFolder.uri.fsPath, "./ksmconfig.json");
 				const ksmConfig = getKsmConfigFromAbsDir(ksmConfigFileAbsDir);
-				if (!ksmConfig) { return; }
-				if (ksmConfig instanceof KsmcFsPanic) {
+				if (ksmConfig instanceof KsmcFsPanic || ksmConfig instanceof KsmcCommonPanic) {
 					let isKsmConfigFileExist: boolean;
 					try {
 						await vsc.workspace.fs.stat(vsc.Uri.file(ksmConfigFileAbsDir));

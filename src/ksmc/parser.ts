@@ -119,7 +119,9 @@ type HandleImportButNoPathErrorConfigs = "ignore" | "warn-to-console" | "panic";
 type HandleNewlineConfigs = "preserve" | "replace-by-backslash-n" | "replace-by-nothing" | "replace-by-space" | "panic";
 type HandleIndentInStringConfigs = "preserve" | "remove" | "panic";
 
-function getJsonObjFromAbsDir(absDir: string): { json: unknown } | KsmcFsPanic {
+type KsmConfigJsonParseResult = Record<string, unknown>
+
+function getJsonObjFromAbsDir(absDir: string): { json: KsmConfigJsonParseResult } | KsmcFsPanic | KsmcCommonPanic {
     let text: string;
     try {
         text = fs.readFileSync(absDir, "utf-8");
@@ -128,71 +130,68 @@ function getJsonObjFromAbsDir(absDir: string): { json: unknown } | KsmcFsPanic {
     }
     try {
         let parseResult: unknown = JSON.parse(text);
-        return { json: parseResult };
+        if (typeof parseResult === "object" && parseResult !== null) {
+            return { json: parseResult as KsmConfigJsonParseResult };
+        } else {
+            return new KsmcCommonPanic(`尝试解析 ksmconfig.json 时，得到的解析结果不是对象。`, null);
+        }
     } catch (err) {
         return new KsmcFsPanic(new KsmcCommonPanic(`无法解析 JSON 文件${absDir}，可能是出现了语法错误`, null), err);
     }
 }
 
-export function getKsmConfigFromObj(json: unknown): KsmConfig | null {
+
+export function getKsmConfigFromObj(json: KsmConfigJsonParseResult): KsmConfig | KsmcCommonPanic {
     // FIXME: ASSERT 此函数内断言了很多东西。。。
-    if (typeof json !== "object" || json === null) {
-        json = {};
+
+    const rootFile = json.rootFile;
+    if (typeof rootFile !== "string") {
+        return new KsmcCommonPanic(`ksmconfig 格式错误：必须包含字符串型的 "rootFile" 属性`, null);
+    }
+    const outFile = json.outFile;
+    if (typeof outFile !== "string") {
+        return new KsmcCommonPanic(`ksmconfig 格式错误：必须包含字符串型的 "outFile" 属性`, null);
     }
 
-    const rootFile =
-        // @ts-expect-error 我说有就有，牛魔
-        json?.rootFile as any;
-    if (typeof rootFile !== "string") { return null; }
-    const outFile =
-        // @ts-expect-error 我说有就有，牛魔
-        json?.outFile as any;
-    if (typeof outFile !== "string") { return null; }
-    let handleImportButNoPathError =
-        // @ts-expect-error 我说有就有，牛魔
-        json?.handleImportButNoPathError as any;
+    let handleImportButNoPathError = json.handleImportButNoPathError;
     if (typeof handleImportButNoPathError !== "string" || (
         handleImportButNoPathError !== "ignore" &&
-        handleImportButNoPathError !== "warn-to-console"
+        handleImportButNoPathError !== "warn-to-console" &&
+        handleImportButNoPathError !== "panic"
     )) {
-        handleImportButNoPathError = "panic";
+        return new KsmcCommonPanic(`ksmconfig 格式错误："handleInportButNoPathError" 属性的值必须为 "ignore" | "warn-to-console" | "panic"`, null);
     }
-    let handleNewlineInString =
-        // @ts-expect-error 我说有就有，牛魔
-        json?.handleNewlineInString as any;
+    let handleNewlineInString = json.handleNewlineInString;
     if (typeof handleNewlineInString !== "string" || (
         handleNewlineInString !== "preserve" &&
         handleNewlineInString !== "replace-by-backslash-n" &&
         handleNewlineInString !== "replace-by-nothing" &&
-        handleNewlineInString !== "replace-by-space"
+        handleNewlineInString !== "replace-by-space" &&
+        handleNewlineInString !== "panic"
     )) {
-        handleNewlineInString = "panic";
+        return new KsmcCommonPanic(`ksmconfig 格式错误："handleNewlineInString" 属性的值必须为 "preserve" | "replace-by-backslash-n" | "replace-by-nothing" | "replace-by-space" | "panic"`, null);
     }
-    let handleIndentInString =
-        // @ts-expect-error 我说有就有，牛魔
-        json?.handleIndentInString as any;
+    let handleIndentInString = json.handleIndentInString;
     if (typeof handleIndentInString !== "string" || (
         handleIndentInString !== "preserve" &&
-        handleIndentInString !== "remove"
+        handleIndentInString !== "remove" &&
+        handleIndentInString !== "panic"
     )) {
-        handleIndentInString = "panic";
+        return new KsmcCommonPanic(`ksmconfig 格式错误："handleIndentInString" 属性的值必须为 "preserve" | "remove" | "panic"`, null);
     }
-    let handleInlineNewlines =
-        // @ts-expect-error 我说有就有，牛魔
-        json?.handleInlineNewlines as any;
+    let handleInlineNewlines = json.handleInlineNewlines;
     if (typeof handleInlineNewlines !== "string" || (
         handleInlineNewlines !== "preserve" &&
         handleInlineNewlines !== "replace-by-backslash-n" &&
         handleInlineNewlines !== "replace-by-nothing" &&
-        handleInlineNewlines !== "replace-by-space"
+        handleInlineNewlines !== "replace-by-space" &&
+        handleInlineNewlines !== "panic"
     )) {
-        handleInlineNewlines = "panic";
+        return new KsmcCommonPanic(`ksmconfig 格式错误："handleInlineNewlines" 属性的值必须为 "preserve" | "replace-by-backslash-n" | "replace-by-nothing" | "replace-by-space" | "panic"`, null);
     }
-    let allowChineseKeywords =
-        // @ts-expect-error 我说有就有，牛魔
-        json?.allowChineseKeywords as any;
+    let allowChineseKeywords = json.allowChineseKeywords;
     if (typeof allowChineseKeywords !== "boolean") {
-        allowChineseKeywords = false;
+        return new KsmcCommonPanic(`ksmconfig 格式错误："allowChineseKeywords" 属性的值必须为布尔型`, null);
     }
 
     return {
@@ -208,7 +207,7 @@ export function getKsmConfigFromObj(json: unknown): KsmConfig | null {
 
 export const getKsmConfigFromAbsDir = (absDir: string) => {
     const jsonResult = getJsonObjFromAbsDir(absDir);
-    if (jsonResult instanceof KsmcFsPanic) {
+    if (jsonResult instanceof KsmcFsPanic || jsonResult instanceof KsmcCommonPanic) {
         return jsonResult;
     }
     return getKsmConfigFromObj(jsonResult.json);
@@ -392,6 +391,12 @@ export function makeAstFromSrc(options: {
                         }
                     }
                     isNewLine = false;
+                    if (!peek()) { // 越界获取到空值
+                        return new KsmcCommonPanic(`未闭合的字符串字面量“${str}”`, getRange(beginRow, beginCol));
+                    }
+                    if (peek() === endsChar) {
+                        break;
+                    }
                 }
                 if (peek() === "\\") {
                     next();
