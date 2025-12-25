@@ -101,12 +101,14 @@ export const ReservedWords = new Set([`char`, `clue`, `dialog`, `note`, `import`
 interface KsmConfig {
     /** 编译入口文件相对于配置文件所在目录的路径 */ 
     rootFile: string,
-    /** 输出文件相当于配置文件所在目录的路径 */
+    /** 输出文件相对于配置文件所在目录的路径 */
     outFile: string,
     /** @default "panic" */
     handleImportButNoPathError: HandleImportButNoPathErrorConfigs,
     /** @default "panic" */
     handleNewlineInString: HandleNewlineConfigs,
+    /** @default "panic" */
+    handleIndentInString: HandleIndentInStringConfigs,
     /** @default "panic" */
     handleInlineNewlines: HandleNewlineConfigs,
     /** @default false */
@@ -115,6 +117,7 @@ interface KsmConfig {
 
 type HandleImportButNoPathErrorConfigs = "ignore" | "warn-to-console" | "panic";
 type HandleNewlineConfigs = "preserve" | "replace-by-backslash-n" | "replace-by-nothing" | "replace-by-space" | "panic";
+type HandleIndentInStringConfigs = "preserve" | "remove" | "panic";
 
 function getJsonObjFromAbsDir(absDir: string): { json: unknown } | KsmcFsPanic {
     let text: string;
@@ -132,6 +135,7 @@ function getJsonObjFromAbsDir(absDir: string): { json: unknown } | KsmcFsPanic {
 }
 
 export function getKsmConfigFromObj(json: unknown): KsmConfig | null {
+    // FIXME: ASSERT 此函数内断言了很多东西。。。
     if (typeof json !== "object" || json === null) {
         json = {};
     }
@@ -164,6 +168,15 @@ export function getKsmConfigFromObj(json: unknown): KsmConfig | null {
     )) {
         handleNewlineInString = "panic";
     }
+    let handleIndentInString =
+        // @ts-expect-error 我说有就有，牛魔
+        json?.handleIndentInString as any;
+    if (typeof handleIndentInString !== "string" || (
+        handleIndentInString !== "preserve" &&
+        handleIndentInString !== "remove"
+    )) {
+        handleIndentInString = "panic";
+    }
     let handleInlineNewlines =
         // @ts-expect-error 我说有就有，牛魔
         json?.handleInlineNewlines as any;
@@ -187,6 +200,7 @@ export function getKsmConfigFromObj(json: unknown): KsmConfig | null {
         outFile,
         handleImportButNoPathError,
         handleNewlineInString,
+        handleIndentInString,
         handleInlineNewlines,
         allowChineseKeywords,
     };
@@ -252,16 +266,19 @@ export function makeAstFromSrc(options: {
     importedAbsDirs: string[],
     rootNodes: KsmAst,
     /** @default "panic" */
-    handleImportButNoPathError?: HandleImportButNoPathErrorConfigs,
+    handleImportButNoPathError: HandleImportButNoPathErrorConfigs | null,
     /** @default "panic" */
-    handleNewlineInString?: HandleNewlineConfigs,
+    handleNewlineInString: HandleNewlineConfigs | null,
+    /** @default "panic" */
+    handleIndentInString: HandleIndentInStringConfigs | null,
     /** @default false */
-    allowChineseKeywords: boolean,
+    allowChineseKeywords: boolean | null,
 }): { type: "success", validAst: KsmAst } | { type: "panic", panicedAst: KsmAst | null, panics: (KsmcCommonPanic | KsmcFsPanic)[] } {
     const {srcCode, fileAbsDir, importedAbsDirs, rootNodes} = options;
     const panics: (KsmcCommonPanic | KsmcFsPanic)[] = [];
     const handleImportButNoPathError = options.handleImportButNoPathError ?? "panic";
     const handleNewlineInString = options.handleNewlineInString ?? "panic";
+    const handleIndentInString = options.handleIndentInString ?? "panic";
     const allowChineseKeywords = options.allowChineseKeywords ?? false;
     const getNodeById = <T extends RootNode>(id: Id<T>) => getNodeFromAstById(rootNodes, id);
     function makeDeclare<T extends RootNode>(node: T) {
@@ -312,7 +329,8 @@ export function makeAstFromSrc(options: {
 
     // 所有迭代器遵循一个原则：迭代开始时，光标位于新 token 的第一个字符；迭代结束时，光标位于新 token 的最后一个字符的下一个位置。
 
-    function skip(chars: string) {
+    function skip(chars: string): string {
+        const beginPos = pos;
         while (peek()) {
             if (chars.includes(peek() as string)) {
                 next();
@@ -325,6 +343,7 @@ export function makeAstFromSrc(options: {
                 break;
             }
         }
+        return srcCode.substring(beginPos, pos);
     }
 
     const skipWS = () => skip(" \t\r\n");
@@ -352,9 +371,27 @@ export function makeAstFromSrc(options: {
         if (peek() === '"' || peek() === "'" || peek() === "“") {
             const endsChar = peek() === "“" ? "”" : peek();
             let str = "";
+            let isNewLine = true;
             while (next() !== endsChar) {
                 if (!peek()) { // 越界获取到空值
                     return new KsmcCommonPanic(`未闭合的字符串字面量“${str}”`, getRange(beginRow, beginCol));
+                }
+                if (isNewLine) {
+                    if (handleIndentInString === "preserve") {
+                        // 保留缩进，啥也不干
+                    } else {
+                        // 处理缩进
+                        const indentWS = skipInlineWS();
+                        if (indentWS !== "") {
+                            if (handleIndentInString === "panic") {
+                                return new KsmcCommonPanic(`字符串字面量不能包含缩进。（该报错可通过配置 handleIndentInString 以忽略。）`, getRange(beginRow, beginCol));
+                            } else {
+                                staticAssert<"remove">(handleIndentInString);
+                                // 移除缩进，跳过了空白字符之后就啥也不干
+                            }
+                        }
+                    }
+                    isNewLine = false;
                 }
                 if (peek() === "\\") {
                     next();
@@ -374,6 +411,8 @@ export function makeAstFromSrc(options: {
                         str += "“";
                     } else if (peek() === "”") {
                         str += "”";
+                    } else if (peek() === "s") {
+                        str += " "; // \s 转义为空格
                     } else if ("\r\n".includes(peek() as string)) {
                         // 行末续写符
                     } else {
@@ -382,14 +421,17 @@ export function makeAstFromSrc(options: {
                 } else if ("\r\n".includes(peek() as string)) {
                     if (handleNewlineInString === "panic") {
                         return new KsmcCommonPanic(`字符串字面量不能包含换行符。（该报错可通过配置 handleNewlineInString 以忽略。）`, getRange(beginRow, beginCol));
-                    } else if (handleNewlineInString === "preserve") {
-                        str += peek();
-                    } else if (handleNewlineInString === "replace-by-space") {
-                        str += " ";
-                    } else if (handleNewlineInString === "replace-by-backslash-n") {
-                        str += "\\n";
                     } else {
-                        staticAssert<"replace-by-nothing">(handleNewlineInString);
+                        if (handleNewlineInString === "preserve") {
+                            str += peek();
+                        } else if (handleNewlineInString === "replace-by-space") {
+                            str += " ";
+                        } else if (handleNewlineInString === "replace-by-backslash-n") {
+                            str += "\\n";
+                        } else {
+                            staticAssert<"replace-by-nothing">(handleNewlineInString);
+                        }
+                        isNewLine = true;
                     }
                 } else {
                     str += peek();
@@ -658,6 +700,8 @@ export function makeAstFromSrc(options: {
                     text += "\t";
                 } else if (peek() === "/") {
                     text += "/";
+                } else if (peek() === "s") {
+                    text += " "; // \s 转义为空格
                 } else if ("\r\n".includes(peek() as string)) {
                     // 行末续写符
                 } else {
@@ -761,7 +805,15 @@ export function makeAstFromSrc(options: {
                 return { type: "success", validAst: rootNodes };
             } else {
                 const { importSrcCode } = importSrcCodeResult;
-                return makeAstFromSrc({ srcCode: importSrcCode, fileAbsDir: importAbsDir, importedAbsDirs, rootNodes, allowChineseKeywords });
+                return makeAstFromSrc({
+                    srcCode: importSrcCode,
+                    fileAbsDir: importAbsDir,
+                    importedAbsDirs, rootNodes,
+                    handleImportButNoPathError,
+                    handleNewlineInString,
+                    handleIndentInString,
+                    allowChineseKeywords
+                });
             }
         } else {
             const noSuchTokenRange = getRange(beginRow, beginCol);

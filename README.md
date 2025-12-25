@@ -8,6 +8,28 @@ KSM 是一种 DSL。这种 DSL 仅供自用，没有完备、健壮的语法。
 
 按`Ctrl+Shift+P`打开命令面板，运行`KSM: krill script marco - create ksm configuration file`创建一个 KSM 配置文件以激活 KSM 语法分析和编译功能。
 
+ksmconfig.json 的结构是这样的：
+
+```ts
+interface KsmConfig {
+    // 编译入口文件相对于配置文件所在目录的路径
+    rootFile: string;
+    // 输出文件相对于配置文件所在目录的路径
+    outFile: string;
+
+    // @default "panic"
+    handleImportButNoPathError?: "ignore" | "warn-to-console" | "panic";
+    // @default "panic"
+    handleNewlineInString?: "preserve" | "replace-by-backslash-n" | "replace-by-nothing" | "replace-by-space" | "panic";
+    // @default "panic"
+    handleIndentInString?: "preserve" | "remove" | "panic";
+    // @default "panic"
+    handleInlineNewlines?: "preserve" | "replace-by-backslash-n" | "replace-by-nothing" | "replace-by-space" | "panic";
+    // @default false
+    allowChineseKeywords?: boolean;
+}
+```
+
 ## Extension Settings
 
 * `krillScriptMarco.showCharRefsOfSayCommands`: 查看角色的引用时，是否应该查找位于说话指令中的引用。有`"none"`和`"all"`两种可选的值。
@@ -25,6 +47,10 @@ KSM 是一种 DSL。这种 DSL 仅供自用，没有完备、健壮的语法。
 ### 0.0.2
 
 修复重复声明标识符时，报错信息中包含`[object Object]`的问题。
+
+### 0.0.3
+
+新增处理字符串内缩进的功能。
 
 ---
 

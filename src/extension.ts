@@ -513,7 +513,7 @@ export function activate(context: vsc.ExtensionContext) {
 	{
 		const compileCommandDisposable = vsc.commands.registerCommand('krill-script-marco.compile', () => {
 
-			const terminal = vsc.window.createTerminal("KST 测试编译");
+			const terminal = vsc.window.createTerminal("KSM 编译");
 			terminal.show();
 			const print = (text: string) => terminal.sendText(`echo '${text.replaceAll("'", "''")}'`);
 
@@ -549,6 +549,7 @@ export function activate(context: vsc.ExtensionContext) {
 				rootNodes: {} as KsmAst,
 				handleImportButNoPathError: ksmConfig.handleImportButNoPathError,
 				handleNewlineInString: ksmConfig.handleNewlineInString,
+				handleIndentInString: ksmConfig.handleIndentInString,
 				allowChineseKeywords: ksmConfig.allowChineseKeywords,
 			});
 			if (astResult.type === "panic") {
@@ -614,10 +615,11 @@ export function activate(context: vsc.ExtensionContext) {
 			const writeResult = writeFileByAbsDir({
 				text: `{
     "rootFile": "./my_index_file.ksm",
-    "outFile": "./dist/my_out_file.txt",
+    "outFile": "./dist/my_out_file.ksmd.txt",
 
     "handleImportButNoPathError": "panic",
     "handleNewlineInString": "panic",
+    "handleIndentInString": "panic",
     "handleInlineNewlines": "panic",
     "allowChineseKeywords": true
 }`,
@@ -700,6 +702,7 @@ export function activate(context: vsc.ExtensionContext) {
 					rootNodes: {} as KsmAst,
 					handleImportButNoPathError: ksmConfig.handleImportButNoPathError,
 					handleNewlineInString: ksmConfig.handleNewlineInString,
+					handleIndentInString: ksmConfig.handleIndentInString,
 					allowChineseKeywords: ksmConfig.allowChineseKeywords,
 				});
 				if (astResult.type === "panic") {
