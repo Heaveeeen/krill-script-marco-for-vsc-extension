@@ -1,5 +1,5 @@
 import * as vsc from 'vscode';
-import { KsmcCommonPanic, KsmcFsPanic, makeAstFromSrc, KsmAst, makeKsmdListFromAst, KsmRange, getKsmConfigFromAbsDir, getSrcCodeFromPath, IdToken, Char, getNodeFromAstById, Dialog, Clue, writeFileByPath, RootNode, KsmAstNoBrand, ReservedWords, Command, writeFileByAbsDir } from './ksmc/parser';
+import { KsmcCommonPanic, KsmcFsPanic, makeAstFromSrc, makeKsmdListFromAst, KsmRange, getKsmConfigFromAbsDir, getSrcCodeFromPath, IdToken, Char, getNodeFromAstById, Dialog, Clue, writeFileByPath, DeclareWithName, KsmAst, ReservedWords, Command, writeFileByAbsDir, makeEmptyAst } from './ksmc/parser';
 import { cast, staticAssert } from './utils';
 import path from 'path';
 
@@ -58,14 +58,14 @@ export function activate(context: vsc.ExtensionContext) {
 							if (command.type === "say") {
 								return `    ${command.charId}: ${command.text}`;
 							} else {
-								return `    note ${command.targetIdTokenOrDeclareId.id}`;
+								return `    note ${command.target.id}`;
 							}
 						}).join("\n")
 					}\n}`, "ksm");
 				}
 				return new vsc.Hover(mdstr);
 			};
-			for (const node of Object.values(ast as KsmAstNoBrand)) {
+			for (const node of Object.values(ast.symbols)) {
 				if (!isHover(node.range)) { continue; }
 				if (node.type === "char") {
 					if (isHover(node.idToken.range)) {
@@ -100,9 +100,9 @@ export function activate(context: vsc.ExtensionContext) {
 									return getCharHover(cast<Char | null, Char>(getNodeFromAstById(ast, command.charIdToken.id)));
 								}
 							} else if (command.type === "note") {
-								if (command.targetIdTokenOrDeclareId.type === "idToken") {
-									if (isHover(staticAssert<IdToken<Char | Clue>>(command.targetIdTokenOrDeclareId).range)) {
-										const target = cast<Char | Clue | null, Char | Clue>(getNodeFromAstById(ast, command.targetIdTokenOrDeclareId.id));
+								if (command.target.type === "idToken") {
+									if (isHover(staticAssert<IdToken<Char | Clue>>(command.target).range)) {
+										const target = cast<Char | Clue | null, Char | Clue>(getNodeFromAstById(ast, command.target.id));
 										if (target.type === "char") {
 											return getCharHover(target);
 										} else {
@@ -117,6 +117,23 @@ export function activate(context: vsc.ExtensionContext) {
 					staticAssert<never>(node);
 				}
 			}
+			for (const combine of ast.combines) {
+				if (!isHover(combine.range)) { continue; }
+				for (const reason of combine.reasons) {
+					if (reason.type === "idToken") {
+						if (isHover(reason.range)) {
+							const reasonClue = cast<Clue | null, Clue>(getNodeFromAstById(ast, reason.id));
+							return getClueHover(reasonClue);
+						}
+					}
+				}
+				if (combine.infer.type === "idToken") {
+					if (isHover(combine.infer.range)) {
+						const inferClue = cast<Clue | null, Clue>(getNodeFromAstById(ast, combine.infer.id));
+						return getClueHover(inferClue);
+					}
+				}
+			}
 			return null;
 		},
 	});
@@ -126,7 +143,7 @@ export function activate(context: vsc.ExtensionContext) {
 			if (ast === null) { return null; }
 			const isHover = (range: KsmRange) => document.uri.fsPath === range.fileAbsDir && range.vscRange.contains(position);
 			const getLocation = (range: KsmRange) => range.fileAbsDir !== null ? new vsc.Location(vsc.Uri.file(range.fileAbsDir), range.vscRange) : null;
-			for (const node of Object.values(ast as KsmAstNoBrand)) {
+			for (const node of Object.values(ast.symbols)) {
 				if (node.type === "char") {
 					if (isHover(node.idToken.range)) {
 						// char [马可] "马可"
@@ -160,9 +177,9 @@ export function activate(context: vsc.ExtensionContext) {
 									return getLocation(cast<Char | null, Char>(getNodeFromAstById(ast, command.charIdToken.id)).idToken.range);
 								}
 							} else if (command.type === "note") {
-								if (command.targetIdTokenOrDeclareId.type === "idToken") {
-									if (isHover(staticAssert<IdToken<Char | Clue>>(command.targetIdTokenOrDeclareId).range)) {
-										const target = cast<Char | Clue | null, Char | Clue>(getNodeFromAstById(ast, command.targetIdTokenOrDeclareId.id));
+								if (command.target.type === "idToken") {
+									if (isHover(staticAssert<IdToken<Char | Clue>>(command.target).range)) {
+										const target = cast<Char | Clue | null, Char | Clue>(getNodeFromAstById(ast, command.target.id));
 										return getLocation(target.idToken.range);
 									}
 								}
@@ -173,11 +190,31 @@ export function activate(context: vsc.ExtensionContext) {
 					staticAssert<never>(node);
 				}
 			}
+			for (const combine of ast.combines) {
+				if (!isHover(combine.range)) { continue; }
+				for (const reason of combine.reasons) {
+					if (reason.type === "idToken") {
+						if (isHover(reason.range)) {
+							const reasonClue = cast<Clue | null, Clue>(getNodeFromAstById(ast, reason.id));
+							return getLocation(reasonClue.range);
+						}
+					}
+				}
+				if (combine.infer.type === "idToken") {
+					if (isHover(combine.infer.range)) {
+						const inferClue = cast<Clue | null, Clue>(getNodeFromAstById(ast, combine.infer.id));
+						return getLocation(inferClue.range);
+					}
+				}
+			}
 			return null;
 		},
 	});
 
-	type RefType = "char-declare" | "clue-declare" | "ask-char" | "ask-dialog" | "dialog-declare" | "say-char" | "note-char" | "note-clue";
+	type RefType = "char-declare" |
+		"clue-declare" | "ask-char" | "ask-dialog" |
+		"dialog-declare" | "say-char" | "note-char" | "note-clue" |
+		"combine-reason" | "combine-infer";
 
 	function forEachRefOfHoverRanges(opitons: {
 		ast: KsmAst
@@ -188,7 +225,7 @@ export function activate(context: vsc.ExtensionContext) {
 		const { ast, includeDeclaration, isHover, callback } = opitons;
 		// 获取当前的焦点
 		let hoverIdToken: IdToken | null = null;
-		for (const node of Object.values(ast as KsmAstNoBrand)) {
+		for (const node of Object.values(ast.symbols)) {
 			if (node.type === "char") {
 				if (isHover(node.idToken.range)) {
 					// char [马可] "马可"
@@ -222,9 +259,9 @@ export function activate(context: vsc.ExtensionContext) {
 								hoverIdToken = cast<Char | null, Char>(getNodeFromAstById(ast, command.charIdToken.id)).idToken;
 							}
 						} else if (command.type === "note") {
-							if (command.targetIdTokenOrDeclareId.type === "idToken") {
-								if (isHover(staticAssert<IdToken<Char | Clue>>(command.targetIdTokenOrDeclareId).range)) {
-									const target = cast<Char | Clue | null, Char | Clue>(getNodeFromAstById(ast, command.targetIdTokenOrDeclareId.id));
+							if (command.target.type === "idToken") {
+								if (isHover(staticAssert<IdToken<Char | Clue>>(command.target).range)) {
+									const target = cast<Char | Clue | null, Char | Clue>(getNodeFromAstById(ast, command.target.id));
 									hoverIdToken = target.idToken;
 								}
 							}
@@ -235,11 +272,27 @@ export function activate(context: vsc.ExtensionContext) {
 				staticAssert<never>(node);
 			}
 		}
+		for (const combine of ast.combines) {
+			if (!isHover(combine.range)) { continue; }
+			for (const reason of combine.reasons) {
+				if (reason.type === "idToken") {
+					if (isHover(reason.range)) {
+						hoverIdToken = reason;
+					}
+				}
+			}
+			if (combine.infer.type === "idToken") {
+				if (isHover(combine.infer.range)) {
+					const inferClue = cast<Clue | null, Clue>(getNodeFromAstById(ast, combine.infer.id));
+					hoverIdToken = combine.infer;
+				}
+			}
+		}
 		if (hoverIdToken === null) { return; }
 		// 到此处，已经获取到了有一个带有引用的焦点
 		const hoverId = hoverIdToken.id;
-		const hoverDeclare = cast<RootNode | null, RootNode>(getNodeFromAstById(ast, hoverId));
-		for (const node of Object.values(ast as KsmAstNoBrand)) {
+		const hoverDeclare = cast<DeclareWithName | null, DeclareWithName>(getNodeFromAstById(ast, hoverId));
+		for (const node of Object.values(ast.symbols)) {
 			if (node.type === "char") {
 				if (includeDeclaration) {
 					if (hoverDeclare.type === "char" && hoverId ===  node.idToken.id) {
@@ -275,16 +328,27 @@ export function activate(context: vsc.ExtensionContext) {
 						}
 					} else {
 						staticAssert<"note">(command.type);
-						if (command.targetIdTokenOrDeclareId.type === "idToken") {
-							const noteTarget = cast<Char | Clue | null, Char | Clue>(getNodeFromAstById(ast, command.targetIdTokenOrDeclareId.id));
-							if (hoverDeclare.type === noteTarget.type && hoverId === command.targetIdTokenOrDeclareId.id) {
-								callback(command.targetIdTokenOrDeclareId.range, noteTarget.type === "char" ? "note-char" : "note-clue");
+						if (command.target.type === "idToken") {
+							const noteTarget = cast<Char | Clue | null, Char | Clue>(getNodeFromAstById(ast, command.target.id));
+							if (hoverDeclare.type === noteTarget.type && hoverId === command.target.id) {
+								callback(command.target.range, noteTarget.type === "char" ? "note-char" : "note-clue");
 							}
 						}
 					}
 				}
 			} else {
 				staticAssert<never>(node);
+			}
+		}
+		for (const combine of ast.combines) {
+			if (!isHover(combine.range)) { continue; }
+			for (const reason of combine.reasons) {
+				if (reason.type === "idToken") {
+					callback(reason.range, "combine-reason");
+				}
+			}
+			if (combine.infer.type === "idToken") {
+				callback(combine.infer.range, "combine-infer");
 			}
 		}
 	};
@@ -323,7 +387,7 @@ export function activate(context: vsc.ExtensionContext) {
 	function prepareRenameOrNot(document: vsc.TextDocument, position: vsc.Position, token: vsc.CancellationToken): { ok: true, range: vsc.Range } | { ok: false, message?: string } {
 		if (ast === null) { return { ok: false, message: "未获取到 AST" }; }
 		const isHover = (range: KsmRange) => document.uri.fsPath === range.fileAbsDir && range.vscRange.contains(position);
-		for (const node of Object.values(ast as KsmAstNoBrand)) {
+		for (const node of Object.values(ast.symbols)) {
 			if (!isHover(node.range)) { continue; }
 			if (node.type === "char") {
 				if (isHover(node.idToken.range)) {
@@ -351,8 +415,8 @@ export function activate(context: vsc.ExtensionContext) {
 								return {ok: true, range: command.charIdToken.range.vscRange };
 							}
 						} else {
-							if (command.targetIdTokenOrDeclareId.type === "idToken" && isHover(command.targetIdTokenOrDeclareId.range)) {
-								return {ok: true, range: command.targetIdTokenOrDeclareId.range.vscRange };
+							if (command.target.type === "idToken" && isHover(command.target.range)) {
+								return {ok: true, range: command.target.range.vscRange };
 							}
 						}
 					}
@@ -399,7 +463,7 @@ export function activate(context: vsc.ExtensionContext) {
 			const compItems: vsc.CompletionItem[] = [];
 
 			ReservedWords.forEach(word => compItems.push(new vsc.CompletionItem(word, vsc.CompletionItemKind.Keyword)));
-			for (const node of Object.values(ast as KsmAstNoBrand)) {
+			for (const node of Object.values(ast.symbols)) {
 				const label: vsc.CompletionItemLabel = {
 					label: node.idToken.id,
 					//detail: `${node.type} ${node.idToken.id}`,
@@ -424,7 +488,7 @@ export function activate(context: vsc.ExtensionContext) {
 								if (command.type === "say") {
 									return `    ${command.charId}: ${command.text}`;
 								} else {
-									return `    note ${command.targetIdTokenOrDeclareId.id}`;
+									return `    note ${command.target.id}`;
 								}
 							}).join("\n")
 						}\n`;
@@ -447,10 +511,10 @@ export function activate(context: vsc.ExtensionContext) {
 			const symbols: vsc.DocumentSymbol[] = [];
 			const getCommandDesc = (command: Command) => command.type === "say" ?
 				`${command.charId}：${command.text}` :
-				`note ${command.targetIdTokenOrDeclareId.id}`;
+				`note ${command.target.id}`;
 			const chars = new vsc.DocumentSymbol("[characters]", "", vsc.SymbolKind.Enum, nullRange, nullRange);
 			symbols.push(chars);
-			for (const node of Object.values(ast as KsmAstNoBrand)) {
+			for (const node of Object.values(ast.symbols)) {
 				if (document.uri.fsPath !== node.range.fileAbsDir) { continue; }
 				if (node.type === "char") {
 					chars.children.push(new vsc.DocumentSymbol(
@@ -548,7 +612,7 @@ export function activate(context: vsc.ExtensionContext) {
 				srcCode: getSrcCodeResult.importSrcCode,
 				fileAbsDir: getSrcCodeResult.importAbsDir,
 				importedAbsDirs: [],
-				rootNodes: {} as KsmAst,
+				ast: makeEmptyAst(),
 				handleImportButNoPathError: ksmConfig.handleImportButNoPathError,
 				handleNewlineInString: ksmConfig.handleNewlineInString,
 				handleIndentInString: ksmConfig.handleIndentInString,
@@ -700,7 +764,7 @@ export function activate(context: vsc.ExtensionContext) {
 					srcCode: getSrcCodeResult.importSrcCode,
 					fileAbsDir: getSrcCodeResult.importAbsDir,
 					importedAbsDirs: [],
-					rootNodes: {} as KsmAst,
+					ast: makeEmptyAst(),
 					handleImportButNoPathError: ksmConfig.handleImportButNoPathError,
 					handleNewlineInString: ksmConfig.handleNewlineInString,
 					handleIndentInString: ksmConfig.handleIndentInString,

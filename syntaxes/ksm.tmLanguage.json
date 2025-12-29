@@ -1,101 +1,101 @@
 {
-  "name": "KSm",
-  "scopeName": "source.ksm",
-  "fileTypes": [".ksm"],
-  "patterns": [
-    {
-      "include": "#comments"
-    },
-    {
-      "include": "#strings"
-    },
-    {
-      "include": "#numbers"
-    },
-    {
-      "include": "#keywords"
-    },
-    {
-      "include": "#operators"
-    },
-    {
-      "include": "#variables"
-    },
-    {
-      "include": "#functions"
-    },
-    {
-      "include": "#pointers"
-    },
-    {
-      "include": "#arrays"
+    "name": "KSm",
+    "scopeName": "source.ksm",
+    "fileTypes": [".ksm"],
+    "patterns": [
+        {
+            "include": "#comments"
+        },
+        {
+            "include": "#strings"
+        },
+        {
+            "include": "#numbers"
+        },
+        {
+            "include": "#keywords"
+        },
+        {
+            "include": "#operators"
+        },
+        {
+            "include": "#variables"
+        },
+        {
+            "include": "#functions"
+        },
+        {
+            "include": "#pointers"
+        },
+        {
+            "include": "#arrays"
+        }
+    ],
+    "repository": {
+        "comments": {
+            "patterns": [
+                {
+                    "name": "comment.line.double-slash.ksm",
+                    "match": "//.*$"
+                }
+            ]
+        },
+        "strings": {
+            "patterns": [
+                {
+                    "name": "string.quoted.double.ksm",
+                    "begin": "\"",
+                    "end": "\"",
+                    "patterns": [
+                        {
+                            "name": "constant.character.escape.ksm",
+                            "match": "\\\\."
+                        }
+                    ]
+                },
+                {
+                    "name": "string.quoted.single.ksm",
+                    "begin": "'",
+                    "end": "'",
+                    "patterns": [
+                        {
+                            "name": "constant.character.escape.ksm",
+                            "match": "\\\\."
+                        }
+                    ]
+                },
+                {
+                    "name": "string.quoted.double.chinese.ksm",
+                    "begin": "“",
+                    "end": "”",
+                    "patterns": [
+                        {
+                            "name": "constant.character.escape.ksm",
+                            "match": "\\\\."
+                        }
+                    ]
+                }
+            ]
+        },
+        "keywords": {
+            "patterns": [
+                {
+                    "name": "keyword.control.ksm",
+                    "match": "\\b(?:import|note|combine|导入|笔记|组合)\\b"
+                },
+                {
+                    "name": "keyword.declaration.ksm",
+                    "match": "\\b(?:char|clue|dialog|角色|线索|对话)\\b"
+                }
+            ]
+        },
+        "operators": {
+            "patterns": [
+                {
+                    "name": "punctuation.separator.key-value.ksm",
+                    "match": "[:：]"
+                }
+            ]
+        }
     }
-  ],
-  "repository": {
-    "comments": {
-      "patterns": [
-        {
-          "name": "comment.line.double-slash.ksm",
-          "match": "//.*$"
-        }
-      ]
-    },
-    "strings": {
-      "patterns": [
-        {
-          "name": "string.quoted.double.ksm",
-          "begin": "\"",
-          "end": "\"",
-          "patterns": [
-            {
-              "name": "constant.character.escape.ksm",
-              "match": "\\\\."
-            }
-          ]
-        },
-        {
-          "name": "string.quoted.single.ksm",
-          "begin": "'",
-          "end": "'",
-          "patterns": [
-            {
-              "name": "constant.character.escape.ksm",
-              "match": "\\\\."
-            }
-          ]
-        },
-        {
-          "name": "string.quoted.double.chinese.ksm",
-          "begin": "“",
-          "end": "”",
-          "patterns": [
-            {
-              "name": "constant.character.escape.ksm",
-              "match": "\\\\."
-            }
-          ]
-        }
-      ]
-    },
-    "keywords": {
-      "patterns": [
-        {
-          "name": "keyword.control.ksm",
-          "match": "\\b(?:import|note|导入|笔记)\\b"
-        },
-        {
-          "name": "keyword.declaration.ksm",
-          "match": "\\b(?:char|clue|dialog|角色|线索|对话)\\b"
-        }
-      ]
-    },
-    "operators": {
-      "patterns": [
-        {
-          "name": "punctuation.separator.key-value.ksm",
-          "match": "[:：]"
-        }
-      ]
-    }
-  }
 }
