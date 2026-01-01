@@ -280,8 +280,9 @@ export function makeAstFromSrc(options: {
     handleIndentInString: HandleIndentInStringConfigs | null,
     /** @default false */
     allowChineseKeywords: boolean | null,
+    allowUndefinedIds: boolean,
 }): { type: "success", validAst: KsmAst } | { type: "panic", panicedAst: KsmAst | null, panics: (KsmcCommonPanic | KsmcFsPanic)[] } {
-    const {srcCode, fileAbsDir, importedAbsDirs, ast} = options;
+    const {srcCode, fileAbsDir, importedAbsDirs, ast, allowUndefinedIds} = options;
     const panics: (KsmcCommonPanic | KsmcFsPanic)[] = [];
     const handleImportButNoPathError = options.handleImportButNoPathError ?? "panic";
     const handleNewlineInString = options.handleNewlineInString ?? "panic";
@@ -832,7 +833,8 @@ export function makeAstFromSrc(options: {
                     handleImportButNoPathError,
                     handleNewlineInString,
                     handleIndentInString,
-                    allowChineseKeywords
+                    allowChineseKeywords,
+                    allowUndefinedIds: true, // 允许未定义的标识符，防止提前验证
                 }) };
             }
         } else {
@@ -981,100 +983,102 @@ export function makeAstFromSrc(options: {
         skipWS();
     }
 
-    // 检验上述的 FIXME ASSERT 断言
-    for (const node of Object.values(ast.symbols)) {
-        if (node.type === "clue") {
-            for (const ask of node.asks) { // 线索的 问谁：进入啥对话 检验
-                const {charIdToken, dialogIdTokenOrDeclareId: dialogToken} = ask;
-                { // 问话那人存在吗？
-                    const charResult = getNodeById(charIdToken.id);
-                    if (charResult === null) { return {
-                        type: "panic",
-                        panicedAst: ast,
-                        panics: [new KsmcCommonPanic(`未知的标识符“${charIdToken.id}”。`, charIdToken.range)],
-                    }; }
-                    if (charResult.type !== "char") { return {
-                        type: "panic",
-                        panicedAst: ast,
-                        panics: [new KsmcCommonPanic(`“${charIdToken.id}”不是角色标识符。`, charIdToken.range)],
-                    }; }
-                }
-                // 要说的对话存在吗？
-                const dialogResult = getNodeById(dialogToken.id);
-                if (dialogResult === null) { return {
-                    type: "panic",
-                    panicedAst: ast,
-                    panics: [new KsmcCommonPanic(
-                        `未知的标识符“${dialogToken.id}”。`,
-                        dialogToken.type === "idToken" ? dialogToken.range : ask.range
-                    )],
-                };}
-                if (dialogResult.type !== "dialog") { return {
-                    type: "panic",
-                    panicedAst: ast,
-                    panics: [new KsmcCommonPanic(
-                        `“${dialogToken.id}”不是对话标识符。`,
-                        dialogToken.type === "idToken" ? dialogToken.range : ask.range
-                    )],
-                };}
-            };
-        } else if (node.type === "dialog") {
-            for (const command of node.commands) { // 检验对话中的每一行命令
-                if (command.type === "say") { // 说话者存在吗？
-                    if (command.charIdToken !== null) {
-                        const charResult = getNodeById(command.charIdToken.id);
+    if (!allowUndefinedIds) {
+        // 检验上述的 FIXME ASSERT 断言
+        for (const node of Object.values(ast.symbols)) {
+            if (node.type === "clue") {
+                for (const ask of node.asks) { // 线索的 问谁：进入啥对话 检验
+                    const {charIdToken, dialogIdTokenOrDeclareId: dialogToken} = ask;
+                    { // 问话那人存在吗？
+                        const charResult = getNodeById(charIdToken.id);
                         if (charResult === null) { return {
                             type: "panic",
                             panicedAst: ast,
-                            panics: [new KsmcCommonPanic(`未知的标识符“${command.charIdToken.id}”。`, command.charIdToken.range)],
+                            panics: [new KsmcCommonPanic(`未知的标识符“${charIdToken.id}”。`, charIdToken.range)],
                         }; }
                         if (charResult.type !== "char") { return {
                             type: "panic",
                             panicedAst: ast,
-                            panics: [new KsmcCommonPanic(`“${command.charIdToken.id}”不是角色标识符。`, command.charIdToken.range)],
+                            panics: [new KsmcCommonPanic(`“${charIdToken.id}”不是角色标识符。`, charIdToken.range)],
                         }; }
                     }
-                } else if (command.type === "note") { // 笔记的联络人或线索存在吗？
-                    const targetToken = command.target;
-                    const targetResult = getNodeById(targetToken.id);
-                    if (targetResult === null) { return { // 不存在该名称
+                    // 要说的对话存在吗？
+                    const dialogResult = getNodeById(dialogToken.id);
+                    if (dialogResult === null) { return {
                         type: "panic",
                         panicedAst: ast,
                         panics: [new KsmcCommonPanic(
-                            `未知的标识符“${targetToken.id}”。`,
-                            targetToken.type === "idToken" ? targetToken.range : command.range
+                            `未知的标识符“${dialogToken.id}”。`,
+                            dialogToken.type === "idToken" ? dialogToken.range : ask.range
                         )],
-                    }; }
-                    if (targetResult.type !== "char" && targetResult.type !== "clue") { return { // 该名称类型不对
+                    };}
+                    if (dialogResult.type !== "dialog") { return {
                         type: "panic",
                         panicedAst: ast,
                         panics: [new KsmcCommonPanic(
-                            `“${targetToken.id}”不是线索或角色标识符。`,
-                            targetToken.type === "idToken" ? targetToken.range : command.range
+                            `“${dialogToken.id}”不是对话标识符。`,
+                            dialogToken.type === "idToken" ? dialogToken.range : ask.range
                         )],
-                    }; }
-                }
-            };
-        }
-    }
-    for (const combine of ast.combines) {
-        for (const reason of combine.reasons) {
-            if (reason.type === "idToken") {
-                const reasonResult = getNodeById(reason.id);
-                if (reasonResult === null) { return {
-                    type: "panic",
-                    panicedAst: ast,
-                    panics: [new KsmcCommonPanic(`未知的标识符“${reason.id}”。`, reason.range)],
-                }; }
+                    };}
+                };
+            } else if (node.type === "dialog") {
+                for (const command of node.commands) { // 检验对话中的每一行命令
+                    if (command.type === "say") { // 说话者存在吗？
+                        if (command.charIdToken !== null) {
+                            const charResult = getNodeById(command.charIdToken.id);
+                            if (charResult === null) { return {
+                                type: "panic",
+                                panicedAst: ast,
+                                panics: [new KsmcCommonPanic(`未知的标识符“${command.charIdToken.id}”。`, command.charIdToken.range)],
+                            }; }
+                            if (charResult.type !== "char") { return {
+                                type: "panic",
+                                panicedAst: ast,
+                                panics: [new KsmcCommonPanic(`“${command.charIdToken.id}”不是角色标识符。`, command.charIdToken.range)],
+                            }; }
+                        }
+                    } else if (command.type === "note") { // 笔记的联络人或线索存在吗？
+                        const targetToken = command.target;
+                        const targetResult = getNodeById(targetToken.id);
+                        if (targetResult === null) { return { // 不存在该名称
+                            type: "panic",
+                            panicedAst: ast,
+                            panics: [new KsmcCommonPanic(
+                                `未知的标识符“${targetToken.id}”。`,
+                                targetToken.type === "idToken" ? targetToken.range : command.range
+                            )],
+                        }; }
+                        if (targetResult.type !== "char" && targetResult.type !== "clue") { return { // 该名称类型不对
+                            type: "panic",
+                            panicedAst: ast,
+                            panics: [new KsmcCommonPanic(
+                                `“${targetToken.id}”不是线索或角色标识符。`,
+                                targetToken.type === "idToken" ? targetToken.range : command.range
+                            )],
+                        }; }
+                    }
+                };
             }
         }
-        if (combine.infer.type === "idToken") {
-            const inferResult = getNodeById(combine.infer.id);
-            if (inferResult === null) { return {
-                type: "panic",
-                panicedAst: ast,
-                panics: [new KsmcCommonPanic(`未知的标识符“${combine.infer.id}”。`, combine.infer.range)],
-            }; }
+        for (const combine of ast.combines) {
+            for (const reason of combine.reasons) {
+                if (reason.type === "idToken") {
+                    const reasonResult = getNodeById(reason.id);
+                    if (reasonResult === null) { return {
+                        type: "panic",
+                        panicedAst: ast,
+                        panics: [new KsmcCommonPanic(`未知的标识符“${reason.id}”。`, reason.range)],
+                    }; }
+                }
+            }
+            if (combine.infer.type === "idToken") {
+                const inferResult = getNodeById(combine.infer.id);
+                if (inferResult === null) { return {
+                    type: "panic",
+                    panicedAst: ast,
+                    panics: [new KsmcCommonPanic(`未知的标识符“${combine.infer.id}”。`, combine.infer.range)],
+                }; }
+            }
         }
     }
 

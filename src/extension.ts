@@ -617,6 +617,7 @@ export function activate(context: vsc.ExtensionContext) {
 				handleNewlineInString: ksmConfig.handleNewlineInString,
 				handleIndentInString: ksmConfig.handleIndentInString,
 				allowChineseKeywords: ksmConfig.allowChineseKeywords,
+				allowUndefinedIds: false,
 			});
 			if (astResult.type === "panic") {
 				print(`生成AST出现错误。`);
@@ -769,6 +770,7 @@ export function activate(context: vsc.ExtensionContext) {
 					handleNewlineInString: ksmConfig.handleNewlineInString,
 					handleIndentInString: ksmConfig.handleIndentInString,
 					allowChineseKeywords: ksmConfig.allowChineseKeywords,
+					allowUndefinedIds: false,
 				});
 				if (astResult.type === "panic") {
 					astResult.panics.forEach(panic => reportACommonOrFsPanic(panic));
