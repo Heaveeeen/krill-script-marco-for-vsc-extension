@@ -1,5 +1,5 @@
 import * as vsc from 'vscode';
-import { KsmcCommonPanic, KsmcFsPanic, makeAstFromSrc, makeKsmdListFromAst, KsmRange, getKsmConfigFromAbsDir, getSrcCodeFromPath, IdToken, Char, getNodeFromAstById, Dialog, Clue, writeFileByPath, DeclareWithName, KsmAst, ReservedWords, Command, writeFileByAbsDir, makeEmptyAst } from './ksmc/parser';
+import { KsmcCommonPanic, KsmcFsPanic, makeAstFromSrc, makeKsmdListFromAst, KsmRange, getKsmConfigFromAbsDir, getSrcCodeFromPath, IdToken, Char, getNodeFromAstById, Dialog, Clue, writeFileByPath, NodeWithName, KsmAst, ReservedWords, Command, writeFileByAbsDir, makeEmptyAst, Keywords } from './ksmc/parser';
 import { cast, staticAssert } from './utils';
 import path from 'path';
 
@@ -36,7 +36,7 @@ export function activate(context: vsc.ExtensionContext) {
 			const isHover = (range: KsmRange) => document.uri.fsPath === range.fileAbsDir && range.vscRange.contains(position);
 			const getCharHover = (node: Char) => {
 				const mdstr = new vsc.MarkdownString();
-				mdstr.appendCodeblock(`char ${node.idToken.id} ${JSON.stringify(node.name)}`, "ksm");
+				mdstr.appendCodeblock(`char ${node.idToken.id} ${JSON.stringify(node.name)} ${JSON.stringify(node.desc)}`, "ksm");
 				return new vsc.Hover(mdstr);
 			};
 			const getClueHover = (node: Clue) => {
@@ -44,7 +44,13 @@ export function activate(context: vsc.ExtensionContext) {
 				mdstr.appendCodeblock(`clue ${node.idToken.id} ${JSON.stringify(node.desc)}`, "ksm");
 				const descLines = node.desc.split("\\n");
 				if (descLines.length > 0) { 
-					mdstr.appendMarkdown(`*描述:* \n\n**${descLines[0]}**\n\n${descLines.slice(1).join("  \n")}`);
+					mdstr.appendMarkdown(
+`**${descLines[0]}**
+
+${descLines.slice(1).join("  \n")}
+
+${node.asks.map(ask => `${ask.charIdToken.id} -> ${ask.dialog.id}`).join("  \n")}`
+					);
 				}
 				return new vsc.Hover(mdstr);
 			};
@@ -81,10 +87,10 @@ export function activate(context: vsc.ExtensionContext) {
 							if (isHover(ask.charIdToken.range)) {
 								// { [詹姆斯]: 对话1 }
 								return getCharHover(cast<Char | null, Char>(getNodeFromAstById(ast, ask.charIdToken.id)));
-							} else if (ask.dialogIdTokenOrDeclareId.type === "idToken") {
-								if (isHover(staticAssert<IdToken<Dialog>>(ask.dialogIdTokenOrDeclareId).range)) {
+							} else if (ask.dialog.type === "idToken") {
+								if (isHover(staticAssert<IdToken<Dialog>>(ask.dialog).range)) {
 									// { 詹姆斯: [对话1] }
-									return getDialogHover(cast<Dialog | null, Dialog>(getNodeFromAstById(ast, ask.dialogIdTokenOrDeclareId.id)));
+									return getDialogHover(cast<Dialog | null, Dialog>(getNodeFromAstById(ast, ask.dialog.id)));
 								}
 							}
 						}
@@ -158,10 +164,10 @@ export function activate(context: vsc.ExtensionContext) {
 							if (isHover(ask.charIdToken.range)) {
 								// { [詹姆斯]: 对话1 }
 								return getLocation(cast<Char | null, Char>(getNodeFromAstById(ast, ask.charIdToken.id)).idToken.range);
-							} else if (ask.dialogIdTokenOrDeclareId.type === "idToken") {
-								if (isHover(staticAssert<IdToken<Dialog>>(ask.dialogIdTokenOrDeclareId).range)) {
+							} else if (ask.dialog.type === "idToken") {
+								if (isHover(staticAssert<IdToken<Dialog>>(ask.dialog).range)) {
 									// { 詹姆斯: [对话1] }
-									return getLocation(cast<Dialog | null, Dialog>(getNodeFromAstById(ast, ask.dialogIdTokenOrDeclareId.id)).idToken.range);
+									return getLocation(cast<Dialog | null, Dialog>(getNodeFromAstById(ast, ask.dialog.id)).idToken.range);
 								}
 							}
 						}
@@ -240,10 +246,10 @@ export function activate(context: vsc.ExtensionContext) {
 						if (isHover(ask.charIdToken.range)) {
 							// { [詹姆斯]: 对话1 }
 							hoverIdToken = cast<Char | null, Char>(getNodeFromAstById(ast, ask.charIdToken.id)).idToken;
-						} else if (ask.dialogIdTokenOrDeclareId.type === "idToken") {
-							if (isHover(staticAssert<IdToken<Dialog>>(ask.dialogIdTokenOrDeclareId).range)) {
+						} else if (ask.dialog.type === "idToken") {
+							if (isHover(staticAssert<IdToken<Dialog>>(ask.dialog).range)) {
 								// { 詹姆斯: [对话1] }
-								hoverIdToken = cast<Dialog | null, Dialog>(getNodeFromAstById(ast, ask.dialogIdTokenOrDeclareId.id)).idToken;
+								hoverIdToken = cast<Dialog | null, Dialog>(getNodeFromAstById(ast, ask.dialog.id)).idToken;
 							}
 						}
 					}
@@ -291,7 +297,7 @@ export function activate(context: vsc.ExtensionContext) {
 		if (hoverIdToken === null) { return; }
 		// 到此处，已经获取到了有一个带有引用的焦点
 		const hoverId = hoverIdToken.id;
-		const hoverDeclare = cast<DeclareWithName | null, DeclareWithName>(getNodeFromAstById(ast, hoverId));
+		const hoverDeclare = cast<NodeWithName | null, NodeWithName>(getNodeFromAstById(ast, hoverId));
 		for (const node of Object.values(ast.symbols)) {
 			if (node.type === "char") {
 				if (includeDeclaration) {
@@ -309,9 +315,9 @@ export function activate(context: vsc.ExtensionContext) {
 					if (hoverDeclare.type === "char" && hoverId === ask.charIdToken.id) {
 						callback(ask.charIdToken.range, "ask-char");
 					}
-					if (hoverDeclare.type === "dialog" && hoverId === ask.dialogIdTokenOrDeclareId.id) {
-						if (ask.dialogIdTokenOrDeclareId.type === "idToken") {
-							callback(ask.dialogIdTokenOrDeclareId.range, "ask-dialog");
+					if (hoverDeclare.type === "dialog" && hoverId === ask.dialog.id) {
+						if (ask.dialog.type === "idToken") {
+							callback(ask.dialog.range, "ask-dialog");
 						}
 					}
 				}
@@ -400,8 +406,8 @@ export function activate(context: vsc.ExtensionContext) {
 					for (const ask of node.asks) {
 						if (isHover(ask.charIdToken.range)) {
 							return {ok: true, range: ask.charIdToken.range.vscRange };
-						} else if (ask.dialogIdTokenOrDeclareId.type === "idToken" && isHover(ask.dialogIdTokenOrDeclareId.range)) {
-							return {ok: true, range: ask.dialogIdTokenOrDeclareId.range.vscRange };
+						} else if (ask.dialog.type === "idToken" && isHover(ask.dialog.range)) {
+							return {ok: true, range: ask.dialog.range.vscRange };
 						}
 					}
 				}
@@ -462,7 +468,7 @@ export function activate(context: vsc.ExtensionContext) {
 			if (ast === null) { return null; }
 			const compItems: vsc.CompletionItem[] = [];
 
-			ReservedWords.forEach(word => compItems.push(new vsc.CompletionItem(word, vsc.CompletionItemKind.Keyword)));
+			Keywords.forEach(word => compItems.push(new vsc.CompletionItem(word, vsc.CompletionItemKind.Keyword)));
 			for (const node of Object.values(ast.symbols)) {
 				const label: vsc.CompletionItemLabel = {
 					label: node.idToken.id,
@@ -508,6 +514,19 @@ export function activate(context: vsc.ExtensionContext) {
 	const symbolProvider = vsc.languages.registerDocumentSymbolProvider("ksm", {
 		async provideDocumentSymbols(document, token): Promise<vsc.DocumentSymbol[] | null> {
 			if (ast === null) { return null; }
+			let dialogCommandMaxCount: number;
+			{
+				let showDialogCommandsInOutline = vsc.workspace.getConfiguration("krillScriptMarco").get("showDialogCommandsInOutline");
+				if (showDialogCommandsInOutline === "none") {
+					dialogCommandMaxCount = 0;
+				} else if (showDialogCommandsInOutline === "all") {
+					dialogCommandMaxCount = Infinity;
+				} else {
+					showDialogCommandsInOutline = "limited";
+					dialogCommandMaxCount = 3;
+				}
+			}
+
 			const symbols: vsc.DocumentSymbol[] = [];
 			const getCommandDesc = (command: Command) => command.type === "say" ?
 				`${command.charId}：${command.text}` :
@@ -519,7 +538,7 @@ export function activate(context: vsc.ExtensionContext) {
 				if (node.type === "char") {
 					chars.children.push(new vsc.DocumentSymbol(
 						node.idToken.id,
-						node.name,
+						node.desc ? `${node.name} - ${node.desc}` : node.name,
 						vsc.SymbolKind.EnumMember,
 						node.range.vscRange,
 						node.idToken.range.vscRange,
@@ -535,7 +554,7 @@ export function activate(context: vsc.ExtensionContext) {
 					symbols.push(clue);
 					for (const ask of node.asks) {
 						clue.children.push(new vsc.DocumentSymbol(
-							`${ask.charIdToken.id}：${ask.dialogIdTokenOrDeclareId.id}`,
+							`${ask.charIdToken.id}：${ask.dialog.id}`,
 							"ask",
 							vsc.SymbolKind.Event,
 							ask.range.vscRange,
@@ -551,7 +570,9 @@ export function activate(context: vsc.ExtensionContext) {
 						node.idToken.range.vscRange
 					);
 					symbols.push(dialog);
+					let i = 0;
 					for (const command of node.commands) {
+						if (i >= dialogCommandMaxCount) { break; }
 						dialog.children.push(new vsc.DocumentSymbol(
 							getCommandDesc(command),
 							command.type,
@@ -559,6 +580,7 @@ export function activate(context: vsc.ExtensionContext) {
 							command.range.vscRange,
 							command.range.vscRange
 						));
+						i++;
 					}
 				} else {
 					staticAssert<never>(node);
@@ -572,6 +594,14 @@ export function activate(context: vsc.ExtensionContext) {
 			return symbols;
 		},
 	}, {});
+
+	/*const docLinkProvider = vsc.languages.registerDocumentLinkProvider("ksm", {
+		async provideDocumentLinks(document, token): Promise<vsc.DocumentLink | null> {
+			if (ast === null) { return null; }
+
+			new vsc.DocumentLink()
+		},
+	});*/
 
 	//#region compile
 	{

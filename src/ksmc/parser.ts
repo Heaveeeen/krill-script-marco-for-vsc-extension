@@ -40,9 +40,9 @@ export class KsmcNoSuchTokenError extends Error {
 
 
 
-export type Id<T extends DeclareWithName = DeclareWithName> = string & { __brand: T };
+export type Id<T extends NodeWithName = NodeWithName> = string & { __brand: T };
 
-export type IdToken<T extends DeclareWithName = DeclareWithName> = {
+export type IdToken<T extends NodeWithName = NodeWithName> = {
     type: "idToken",
     id: Id<T>,
     range: KsmRange,
@@ -52,6 +52,7 @@ export type Char = {
     type: "char",
     idToken: IdToken<Char>,
     name: string,
+    desc: string,
     range: KsmRange,
 };
 
@@ -66,7 +67,7 @@ export type Clue = {
 export type AskPair = {
     type: "askPair",
     charIdToken: IdToken<Char>,
-    dialogIdTokenOrDeclareId: IdToken<Dialog> | { type: "askDialogLiteralId", id: Id<Dialog> },
+    dialog: IdToken<Dialog> | { type: "askDialogLiteralId", id: Id<Dialog> },
     range: KsmRange,
 };
 
@@ -102,10 +103,14 @@ export type Note = {
     range: KsmRange,
 };
 
-export type DeclareWithName = Char | Clue | Dialog;
+export type NodeWithName = Char | Clue | Dialog;
 
-export const ReservedWords = new Set([`char`, `clue`, `dialog`, `note`, `import`, `combine`, `角色`, `线索`, `对话`, `笔记`, `导入`, `组合`]);
-
+export const ReservedWords = new Set([
+    `char`, `clue`, `dialog`, `note`, `import`, `combine`,
+    `角色`, `线索`, `对话`, `笔记`, `导入`, `组合`,
+    `_ksm_metadata_desc_`, `_ksm_metadata_build_timestamp_`,
+]);
+export const Keywords = [`char`, `clue`, `dialog`, `note`, `import`, `角色`, `线索`, `对话`, `笔记`, `导入`];
 
 interface KsmConfig {
     /** 编译入口文件相对于配置文件所在目录的路径 */ 
@@ -256,12 +261,12 @@ export const getSrcCodeFromPath = (options: {
     }
 };
 
-export type KsmAst = { symbols: Record<Id, DeclareWithName>, combines: Combine[] };
+export type KsmAst = { symbols: Record<Id, NodeWithName>, combines: Combine[] };
 
 const idBeginReg = /[\p{L}_]/u;
 const idBodyReg = /[\p{L}_0-9]/u;
 
-export function getNodeFromAstById<T extends DeclareWithName>(ast: KsmAst, id: Id<T>) {
+export function getNodeFromAstById<T extends NodeWithName>(ast: KsmAst, id: Id<T>) {
     return ast.symbols[id] as T | undefined ?? null;
 }
 
@@ -288,8 +293,8 @@ export function makeAstFromSrc(options: {
     const handleNewlineInString = options.handleNewlineInString ?? "panic";
     const handleIndentInString = options.handleIndentInString ?? "panic";
     const allowChineseKeywords = options.allowChineseKeywords ?? false;
-    const getNodeById = <T extends DeclareWithName>(id: Id<T>) => getNodeFromAstById(ast, id);
-    function makeDeclare<T extends DeclareWithName>(node: T) {
+    const getNodeById = <T extends NodeWithName>(id: Id<T>) => getNodeFromAstById(ast, id);
+    function makeDeclare<T extends NodeWithName>(node: T) {
         if (ast.symbols[node.idToken.id]) {
             return new KsmcCommonPanic(`重复声明了标识符“${node.idToken.id}”`, node.range);
         } else {
@@ -357,7 +362,7 @@ export function makeAstFromSrc(options: {
     const skipWS = () => skip(" \t\r\n");
     const skipInlineWS = () => skip(" \t");
 
-    function nextIdentifier<T extends DeclareWithName = DeclareWithName>(): IdToken<T> | KsmcNoSuchTokenError {
+    function nextIdentifier<T extends NodeWithName = NodeWithName>(): IdToken<T> | KsmcNoSuchTokenError {
         const beginPos = pos, beginRow = row, beginCol = col;
         if (peek() && idBeginReg.test(peek() as string)) {
             // 匹配名称
@@ -512,7 +517,18 @@ export function makeAstFromSrc(options: {
             if (nameResult instanceof KsmcCommonPanic) { return nameResult; }
             if (nameResult instanceof KsmcNoSuchTokenError) { return nameResult.panic; }
 
-            return makeDeclare<Char>({ type: "char", idToken: idResult, name: nameResult, range: getRange(beginRow, beginCol) });
+            skipInlineWS();
+            const descResult = nextString();
+            if (descResult instanceof KsmcCommonPanic) { return descResult; }
+            if (descResult instanceof KsmcNoSuchTokenError) { return descResult.panic; }
+
+            return makeDeclare<Char>({
+                type: "char",
+                idToken: idResult,
+                name: nameResult,
+                desc: descResult,
+                range: getRange(beginRow, beginCol)
+            });
         } else {
             const noSuchTokenRange = getRange(beginRow, beginCol);
             pos = beginPos, row = beginRow, col = beginCol;
@@ -548,7 +564,7 @@ export function makeAstFromSrc(options: {
                     if (asks.some(({charIdToken}) => charIdToken.id === newCharIdToken.id)) {
                         return new KsmcCommonPanic(`重复的询问对象“${newCharIdToken}”`, getRange(beginRow, beginCol));
                     } else {
-                        asks.push({type: "askPair", charIdToken: newCharIdToken, dialogIdTokenOrDeclareId: newDialogIdToken, range});
+                        asks.push({type: "askPair", charIdToken: newCharIdToken, dialog: newDialogIdToken, range});
                     }
                 };
                 const addAskByDialogDeclare = (newCharIdToken: IdToken<Char>, newDialogDeclare: Dialog, range: KsmRange) => {
@@ -557,7 +573,7 @@ export function makeAstFromSrc(options: {
                     } else {
                         asks.push({
                             type: "askPair", charIdToken: newCharIdToken,
-                            dialogIdTokenOrDeclareId: { type: "askDialogLiteralId", id: newDialogDeclare.idToken.id },
+                            dialog: { type: "askDialogLiteralId", id: newDialogDeclare.idToken.id },
                             range
                         });
                     }
@@ -988,7 +1004,7 @@ export function makeAstFromSrc(options: {
         for (const node of Object.values(ast.symbols)) {
             if (node.type === "clue") {
                 for (const ask of node.asks) { // 线索的 问谁：进入啥对话 检验
-                    const {charIdToken, dialogIdTokenOrDeclareId: dialogToken} = ask;
+                    const {charIdToken, dialog: dialogToken} = ask;
                     { // 问话那人存在吗？
                         const charResult = getNodeById(charIdToken.id);
                         if (charResult === null) { return {
@@ -1095,7 +1111,7 @@ export function makeKsmdListFromAst(opitons: {
     const { ast } = opitons;
     const handleInlineNewlines = opitons.handleInlineNewlines ?? "panic";
     const ksmdList: string[] = [];
-    const add = <T extends DeclareWithName>(...texts: [`@${Id<T>}`, T["type"],  ...string[]]) => {
+    const add = <T extends NodeWithName>(...texts: [`@${Id<T>}`, T["type"],  ...string[]]) => {
         for (const txt of texts) {
             if (handleInlineNewlines !== "preserve" && hasNlReg.test(txt)) {
                 if (handleInlineNewlines === "panic") {
@@ -1114,26 +1130,35 @@ export function makeKsmdListFromAst(opitons: {
             }
         }
     };
+    let addTimestampResult = add<any>(
+        "@_ksm_metadata_build_timestamp_" as any,
+        "_ksm_metadata_build_timestamp_",
+        `${Date.now()}`
+    );
+    if (addTimestampResult instanceof KsmcCommonPanic) { return addTimestampResult; }
+    staticAssert<undefined>(addTimestampResult);
+
     for (const node of Object.values(ast.symbols)) {
-        let result: KsmcCommonPanic | undefined;
+        let addResult: KsmcCommonPanic | undefined;
         if (node.type === "char") {
-            result = add<Char>(
+            addResult = add<Char>(
                 `@${node.idToken.id}`,
                 "char",
                 node.name,
+                node.desc,
             );
         } else if (node.type === "clue") {
-            result = add<Clue>(
+            addResult = add<Clue>(
                 `@${node.idToken.id}`,
                 "clue",
                 node.desc,
-                ...node.asks.flatMap(({charIdToken, dialogIdTokenOrDeclareId}) => [
+                ...node.asks.flatMap(({charIdToken, dialog: dialogIdTokenOrDeclareId}) => [
                     charIdToken.id,
                     dialogIdTokenOrDeclareId.id,
                 ]),
             );
         } else if (node.type === "dialog") {
-            result = add<Dialog>(
+            addResult = add<Dialog>(
                 `@${node.idToken.id}`,
                 "dialog",
                 ...node.commands.flatMap((command) =>
@@ -1146,10 +1171,10 @@ export function makeKsmdListFromAst(opitons: {
         } else {
             staticAssert<never>(node);
         }
-        if (result instanceof KsmcCommonPanic) {
-            return result;
+        if (addResult instanceof KsmcCommonPanic) {
+            return addResult;
         }
-        staticAssert<undefined>(result);
+        staticAssert<undefined>(addResult);
     }
     return ksmdList;
 }
