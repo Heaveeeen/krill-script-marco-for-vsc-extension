@@ -1,5 +1,5 @@
 import * as vsc from 'vscode';
-import { KsmcCommonPanic, KsmcFsPanic, makeAstFromSrc, makeKsmdListFromAst, KsmRange, getKsmConfigFromAbsDir, getSrcCodeFromPath, IdToken, Char, getNodeFromAstById, Dialog, Clue, writeFileByPath, NamedNode, KsmAst, ReservedWords, Command, writeFileByAbsDir, makeEmptyAst, Keywords } from './ksmc/parser';
+import { KsmcCommonPanic, KsmcFsPanic, makeAstFromSrc, makeKsmdListFromAst, KsmRange, getKsmConfigFromAbsDir, getSrcCodeFromPath, IdToken, Char, getNodeFromAstById, Dialog, Clue, writeFileByPath, NamedNode, KsmAst, ReservedWords, Command, writeFileByAbsDir, makeEmptyAst, Keywords, isAno } from './ksmc/parser';
 import { cast, staticAssert } from './utils';
 import path from 'path';
 
@@ -472,7 +472,7 @@ ${node.asks.map(ask => `${ask.charIdToken.id} -> ${ask.dialog.id}`).join("  \n")
 
 			Keywords.forEach(word => compItems.push(new vsc.CompletionItem(word, vsc.CompletionItemKind.Keyword)));
 			for (const node of Object.values(ast.symbols)) {
-				if (node.idToken.id.startsWith(`_ksm_ano_`)) { continue; }
+				if (isAno<NamedNode>(node.idToken.id)) { continue; }
 				const label: vsc.CompletionItemLabel = {
 					label: node.idToken.id,
 					//detail: `${node.type} ${node.idToken.id}`,
@@ -519,14 +519,23 @@ ${node.asks.map(ask => `${ask.charIdToken.id} -> ${ask.dialog.id}`).join("  \n")
 			if (ast === null) { return null; }
 			let dialogCommandMaxCount: number;
 			{
-				let showDialogCommandsInOutline = vsc.workspace.getConfiguration("krillScriptMarco").get("showDialogCommandsInOutline");
-				if (showDialogCommandsInOutline === "none") {
+				let cfg = vsc.workspace.getConfiguration("krillScriptMarco").get("showDialogCommandsInOutline");
+				if (cfg === "none") {
 					dialogCommandMaxCount = 0;
-				} else if (showDialogCommandsInOutline === "all") {
+				} else if (cfg === "all") {
 					dialogCommandMaxCount = Infinity;
 				} else {
-					showDialogCommandsInOutline = "limited";
+					cfg = "limited";
 					dialogCommandMaxCount = 3;
+				}
+			}
+			let showAnoDeclares: "all" | "warp" | "none";
+			{
+				let cfg = vsc.workspace.getConfiguration("krillScriptMarco").get("showAnonymousDeclaresInOutline");
+				if (cfg === "all" || cfg === "warp" || cfg === "none") {
+					showAnoDeclares = cfg;
+				} else {
+					showAnoDeclares = "warp";
 				}
 			}
 
@@ -534,9 +543,10 @@ ${node.asks.map(ask => `${ask.charIdToken.id} -> ${ask.dialog.id}`).join("  \n")
 			const getCommandDesc = (command: Command) => command.type === "say" ?
 				`${command.charId}：${command.text}` :
 				`note ${command.target.id}`;
+			const anos = new vsc.DocumentSymbol("[anonymous]", "", vsc.SymbolKind.Namespace, nullRange, nullRange);
 			const chars = new vsc.DocumentSymbol("[characters]", "", vsc.SymbolKind.Enum, nullRange, nullRange);
-			symbols.push(chars);
 			for (const node of Object.values(ast.symbols)) {
+				if (showAnoDeclares === "none" && isAno<NamedNode>(node.idToken.id)) { continue; }
 				if (document.uri.fsPath !== node.range.fileAbsDir) { continue; }
 				if (node.type === "char") {
 					chars.children.push(new vsc.DocumentSymbol(
@@ -554,7 +564,11 @@ ${node.asks.map(ask => `${ask.charIdToken.id} -> ${ask.dialog.id}`).join("  \n")
 						node.range.vscRange,
 						node.idToken.range.vscRange
 					);
-					symbols.push(clue);
+					if (showAnoDeclares === "warp" && isAno<NamedNode>(node.idToken.id)) {
+						anos.children.push(clue);
+					} else {
+						symbols.push(clue);
+					}
 					for (const ask of node.asks) {
 						clue.children.push(new vsc.DocumentSymbol(
 							`${ask.charIdToken.id}：${ask.dialog.id}`,
@@ -572,7 +586,11 @@ ${node.asks.map(ask => `${ask.charIdToken.id} -> ${ask.dialog.id}`).join("  \n")
 						node.range.vscRange,
 						node.idToken.range.vscRange
 					);
-					symbols.push(dialog);
+					if (showAnoDeclares === "warp" && isAno<NamedNode>(node.idToken.id)) {
+						anos.children.push(dialog);
+					} else {
+						symbols.push(dialog);
+					}
 					let i = 0;
 					for (const command of node.commands) {
 						if (i >= dialogCommandMaxCount) { break; }
@@ -589,10 +607,13 @@ ${node.asks.map(ask => `${ask.charIdToken.id} -> ${ask.dialog.id}`).join("  \n")
 					staticAssert<never>(node);
 				}
 			}
-			if (chars.children.length === 0) {
-				chars.detail = "[empty]";
-			} else {
+			if (chars.children.length > 0) {
 				chars.detail = `[${chars.children.length}]`;
+				symbols.push(chars);
+			}
+			if (anos.children.length > 0) {
+				anos.detail = `[${anos.children.length}]`;
+				symbols.push(anos); // 匿名符号放最后
 			}
 			return symbols;
 		},

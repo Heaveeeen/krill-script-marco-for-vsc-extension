@@ -5,7 +5,7 @@
     "author": {
         "name": "Heaveeeen"
     },
-    "version": "0.0.9",
+    "version": "0.0.10",
     "license": "MIT",
     "repository": {
         "type": "git",
@@ -77,6 +77,17 @@
                         ],
                         "default": "limited",
                         "markdownDescription": "是否应该在大纲中显示对话的全部内容。"
+                    },
+                    "krillScriptMarco.showAnonymousDeclaresInOutline": {
+                        "type": "string",
+                        "enum": ["all", "warp", "none"],
+                        "markdownEnumDescriptions": [
+                            "在大纲中显示所有匿名声明",
+                            "在大纲中集中显示所有匿名声明，将其放入一个节点中",
+                            "在大纲中不显示匿名声明"
+                        ],
+                        "default": "warp",
+                        "markdownDescription": "是否应该在大纲中显示匿名声明，如匿名对话和匿名线索。"
                     }
                 }
             }

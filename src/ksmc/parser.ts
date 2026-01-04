@@ -42,6 +42,8 @@ export class KsmcNoSuchTokenError extends Error {
 
 export type Id<T extends NamedNode = NamedNode> = string & { __brand: T };
 
+export type AnoId<T extends NamedNode = NamedNode> = Id<T> & { __isAnoId: true };
+
 export type IdToken<T extends NamedNode = NamedNode> = {
     type: "idToken",
     id: Id<T>,
@@ -285,6 +287,10 @@ export function getNodeFromAstById<T extends NamedNode>(ast: KsmAst, id: Id<T>) 
 
 export function makeEmptyAst(): KsmAst { return {symbols: {}, combines: [], imports: []}; }
 
+export function isAno<T extends NamedNode>(id: Id<T>): id is AnoId<T> {
+    return id.startsWith(`_ksm_ano_`);
+}
+
 export function makeAstFromSrc(options: {
     srcCode: string,
     fileAbsDir: string | null,
@@ -393,6 +399,9 @@ export function makeAstFromSrc(options: {
             // 匹配名称
             while (next() && idBodyReg.test(peek())) {}
             let id = srcCode.substring(beginPos, pos) as Id<T>;
+            if (isAno(id)) {
+                // TODO: 警告：不建议手动声明匿名标识符
+            }
             if (!ReservedWords.has(id)) {
                 return { type: "idToken", id, range: getRange(beginRow, beginCol) };
             }
@@ -404,13 +413,13 @@ export function makeAstFromSrc(options: {
         );
     }
 
-    function nextIdOrAnonymous<T extends NamedNode = NamedNode>(): IdToken<T> {
+    function nextIdOrAnonymous<T extends NamedNode>(type: T["type"]): IdToken<T> {
         const beginRow = row, beginCol = col;
         const idResult = nextIdentifier<T>();
         if (idResult instanceof KsmcNoSuchTokenError) {
             return {
                 type: "idToken",
-                id: makeAnonymousSymbol("clue"),
+                id: makeAnonymousSymbol(type),
                 range: getRange(beginRow, beginCol),
             };
         } else {
@@ -586,7 +595,7 @@ export function makeAstFromSrc(options: {
             }
 
             skipWS();
-            let clueIdToken = nextIdOrAnonymous<Clue>();
+            let clueIdToken = nextIdOrAnonymous<Clue>("clue");
 
             skipWS();
             const descResult = nextString();
@@ -678,7 +687,7 @@ export function makeAstFromSrc(options: {
             }
 
             skipWS();
-            const dialogIdToken = nextIdOrAnonymous<Dialog>();
+            const dialogIdToken = nextIdOrAnonymous<Dialog>("dialog");
 
             skipWS();
             if (peek() === "{") {
