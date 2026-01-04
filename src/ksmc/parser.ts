@@ -40,9 +40,9 @@ export class KsmcNoSuchTokenError extends Error {
 
 
 
-export type Id<T extends NodeWithName = NodeWithName> = string & { __brand: T };
+export type Id<T extends NamedNode = NamedNode> = string & { __brand: T };
 
-export type IdToken<T extends NodeWithName = NodeWithName> = {
+export type IdToken<T extends NamedNode = NamedNode> = {
     type: "idToken",
     id: Id<T>,
     range: KsmRange,
@@ -103,7 +103,7 @@ export type Note = {
     range: KsmRange,
 };
 
-export type NodeWithName = Char | Clue | Dialog;
+export type NamedNode = Char | Clue | Dialog;
 
 export const ReservedWords = new Set([
     `char`, `clue`, `dialog`, `note`, `import`, `combine`,
@@ -261,16 +261,29 @@ export const getSrcCodeFromPath = (options: {
     }
 };
 
-export type KsmAst = { symbols: Record<Id, NodeWithName>, combines: Combine[] };
+export type ImportNode = {
+    pathStringToken: {
+        str: string,
+        range: KsmRange,
+    },
+    importAbsDir: string,
+    range: KsmRange,
+};
+
+export type KsmAst = {
+    symbols: Record<Id, NamedNode>,
+    combines: Combine[],
+    imports: ImportNode[],
+};
 
 const idBeginReg = /[\p{L}_]/u;
 const idBodyReg = /[\p{L}_0-9]/u;
 
-export function getNodeFromAstById<T extends NodeWithName>(ast: KsmAst, id: Id<T>) {
+export function getNodeFromAstById<T extends NamedNode>(ast: KsmAst, id: Id<T>) {
     return ast.symbols[id] as T | undefined ?? null;
 }
 
-export function makeEmptyAst() { return {symbols: {}, combines: []}; }
+export function makeEmptyAst(): KsmAst { return {symbols: {}, combines: [], imports: []}; }
 
 export function makeAstFromSrc(options: {
     srcCode: string,
@@ -293,14 +306,26 @@ export function makeAstFromSrc(options: {
     const handleNewlineInString = options.handleNewlineInString ?? "panic";
     const handleIndentInString = options.handleIndentInString ?? "panic";
     const allowChineseKeywords = options.allowChineseKeywords ?? false;
-    const getNodeById = <T extends NodeWithName>(id: Id<T>) => getNodeFromAstById(ast, id);
-    function makeDeclare<T extends NodeWithName>(node: T) {
+    const getNodeById = <T extends NamedNode>(id: Id<T>) => getNodeFromAstById(ast, id);
+    function makeDeclare<T extends NamedNode>(node: T) {
         if (ast.symbols[node.idToken.id]) {
             return new KsmcCommonPanic(`重复声明了标识符“${node.idToken.id}”`, node.range);
         } else {
             return ast.symbols[node.idToken.id] = node as T;
         }
     };
+    
+    const makeAnonymousSymbol = (() => {
+        let i = 0;
+        return <T extends NamedNode>(type: T["type"]) => {
+            let symbol: Id<T>;
+            do {
+                symbol = cast<string, Id<T>>(`_ksm_ano_${type}_${i++}_`);
+            } while (getNodeById(symbol) !== null);
+            return symbol;
+        };
+    })();
+
     let row = 0;
     let col = 0;
     let pos = 0;
@@ -362,7 +387,7 @@ export function makeAstFromSrc(options: {
     const skipWS = () => skip(" \t\r\n");
     const skipInlineWS = () => skip(" \t");
 
-    function nextIdentifier<T extends NodeWithName = NodeWithName>(): IdToken<T> | KsmcNoSuchTokenError {
+    function nextIdentifier<T extends NamedNode = NamedNode>(): IdToken<T> | KsmcNoSuchTokenError {
         const beginPos = pos, beginRow = row, beginCol = col;
         if (peek() && idBeginReg.test(peek() as string)) {
             // 匹配名称
@@ -379,7 +404,21 @@ export function makeAstFromSrc(options: {
         );
     }
 
-    function nextString(): string | KsmcNoSuchTokenError | KsmcCommonPanic {
+    function nextIdOrAnonymous<T extends NamedNode = NamedNode>(): IdToken<T> {
+        const beginRow = row, beginCol = col;
+        const idResult = nextIdentifier<T>();
+        if (idResult instanceof KsmcNoSuchTokenError) {
+            return {
+                type: "idToken",
+                id: makeAnonymousSymbol("clue"),
+                range: getRange(beginRow, beginCol),
+            };
+        } else {
+            return idResult;
+        }
+    }
+
+    function nextString(): { str: string, range: KsmRange } | KsmcNoSuchTokenError | KsmcCommonPanic {
         const beginPos = pos, beginRow = row, beginCol = col;
         if (peek() === '"' || peek() === "'" || peek() === "“") {
             const endsChar = peek() === "“" ? "”" : peek();
@@ -459,7 +498,7 @@ export function makeAstFromSrc(options: {
             // 到此，光标位于回引号
             next();
             // 光标移到了回引号后的一个字符
-            return str;
+            return { str, range: getRange(beginRow, beginCol) };
         } else {
             const noSuchTokenRange = getRange(beginRow, beginCol);
             pos = beginPos, row = beginRow, col = beginCol;
@@ -507,17 +546,16 @@ export function makeAstFromSrc(options: {
                 return new KsmcCommonPanic(`禁止使用中文关键词。（该报错可通过配置 allowChineseKeywords 以忽略。）`, getRange(beginRow, beginCol));
             }
 
-            skipInlineWS();
+            skipWS();
             const idResult = nextIdentifier<Char>();
-            if (idResult instanceof KsmcCommonPanic) { return idResult; }
             if (idResult instanceof KsmcNoSuchTokenError) { return idResult.panic; }
 
-            skipInlineWS();
+            skipWS();
             const nameResult = nextString();
             if (nameResult instanceof KsmcCommonPanic) { return nameResult; }
             if (nameResult instanceof KsmcNoSuchTokenError) { return nameResult.panic; }
 
-            skipInlineWS();
+            skipWS();
             const descResult = nextString();
             if (descResult instanceof KsmcCommonPanic) { return descResult; }
             if (descResult instanceof KsmcNoSuchTokenError) { return descResult.panic; }
@@ -525,8 +563,8 @@ export function makeAstFromSrc(options: {
             return makeDeclare<Char>({
                 type: "char",
                 idToken: idResult,
-                name: nameResult,
-                desc: descResult,
+                name: nameResult.str,
+                desc: descResult.str,
                 range: getRange(beginRow, beginCol)
             });
         } else {
@@ -547,10 +585,8 @@ export function makeAstFromSrc(options: {
                 return new KsmcCommonPanic(`禁止使用中文关键词。（该报错可通过配置 allowChineseKeywords 以忽略。）`, getRange(beginRow, beginCol));
             }
 
-            skipInlineWS();
-            const clueIdResult = nextIdentifier<Clue>();
-            if (clueIdResult instanceof KsmcCommonPanic) { return clueIdResult; }
-            if (clueIdResult instanceof KsmcNoSuchTokenError) { return clueIdResult.panic; }
+            skipWS();
+            let clueIdToken = nextIdOrAnonymous<Clue>();
 
             skipWS();
             const descResult = nextString();
@@ -619,7 +655,7 @@ export function makeAstFromSrc(options: {
                 // 至此，光标位于花括号扩回
                 next();
 
-                return makeDeclare<Clue>({ type: "clue", idToken: clueIdResult, desc: descResult, asks, range: getRange(beginRow, beginCol) });
+                return makeDeclare<Clue>({ type: "clue", idToken: clueIdToken, desc: descResult.str, asks, range: getRange(beginRow, beginCol) });
             } else {
                 return new KsmcCommonPanic(`线索定义缺少左大括号“{”`, getRange(beginRow, beginCol));
             }
@@ -641,10 +677,8 @@ export function makeAstFromSrc(options: {
                 return new KsmcCommonPanic(`禁止使用中文关键词。（该报错可通过配置 allowChineseKeywords 以忽略。）`, getRange(beginRow, beginCol));
             }
 
-            skipInlineWS();
-            const dialogIdResult = nextIdentifier<Dialog>();
-            if (dialogIdResult instanceof KsmcCommonPanic) { return dialogIdResult; }
-            if (dialogIdResult instanceof KsmcNoSuchTokenError) { return dialogIdResult.panic; }
+            skipWS();
+            const dialogIdToken = nextIdOrAnonymous<Dialog>();
 
             skipWS();
             if (peek() === "{") {
@@ -669,7 +703,7 @@ export function makeAstFromSrc(options: {
                 // 至此，光标位于花括号扩回
                 next();
 
-                return makeDeclare<Dialog>({ type: "dialog", idToken: dialogIdResult, commands ,range: getRange(beginRow, beginCol) });
+                return makeDeclare<Dialog>({ type: "dialog", idToken: dialogIdToken, commands ,range: getRange(beginRow, beginCol) });
             } else {
                 return new KsmcCommonPanic(`对话定义缺少左大括号“{”`, getRange(beginRow, beginCol));
             }
@@ -828,7 +862,7 @@ export function makeAstFromSrc(options: {
 
             const importSrcCodeResult = getSrcCodeFromPath({
                 currentFileAbsDir: fileAbsDir,
-                importTargetPath: importTargetPathResult,
+                importTargetPath: importTargetPathResult.str,
                 importedAbsDirs,
                 errorRange: getRange(beginRow, beginCol),
             });
@@ -837,6 +871,11 @@ export function makeAstFromSrc(options: {
             }
 
             const { importAbsDir } = importSrcCodeResult;
+            ast.imports.push({
+                pathStringToken: importTargetPathResult,
+                importAbsDir,
+                range: getRange(beginRow, beginCol),
+            });
             if (importSrcCodeResult.type === "repeatImportedAndIgnore") {
                 console.log(`KSM: 忽略重复导入 ${importAbsDir}`);
                 return { type: "importedNothing" };
@@ -988,10 +1027,6 @@ export function makeAstFromSrc(options: {
         } else if (nextNodeResult.type === "combine") {
             ast.combines.push(nextNodeResult); // 这里以后可以改成在 NextCombine 里自动推入
             panics.push(new KsmcCommonPanic(`暂不支持使用组合语句。`, nextNodeResult.range));
-            return {
-                type: "panic", panicedAst: null,
-                panics,
-            };
         } else if (nextNodeResult.type === "importedAnotherFile" && nextNodeResult.makeAstResult.type === "panic") {
             return nextNodeResult.makeAstResult;
         }
@@ -1007,71 +1042,51 @@ export function makeAstFromSrc(options: {
                     const {charIdToken, dialog: dialogToken} = ask;
                     { // 问话那人存在吗？
                         const charResult = getNodeById(charIdToken.id);
-                        if (charResult === null) { return {
-                            type: "panic",
-                            panicedAst: ast,
-                            panics: [new KsmcCommonPanic(`未知的标识符“${charIdToken.id}”。`, charIdToken.range)],
-                        }; }
-                        if (charResult.type !== "char") { return {
-                            type: "panic",
-                            panicedAst: ast,
-                            panics: [new KsmcCommonPanic(`“${charIdToken.id}”不是角色标识符。`, charIdToken.range)],
-                        }; }
+                        if (charResult === null) {
+                            panics.push(new KsmcCommonPanic(`未知的标识符“${charIdToken.id}”。`, charIdToken.range));
+                        } else if (charResult.type !== "char") {
+                            panics.push(new KsmcCommonPanic(`“${charIdToken.id}”不是角色标识符。`, charIdToken.range));
+                        }
                     }
                     // 要说的对话存在吗？
                     const dialogResult = getNodeById(dialogToken.id);
-                    if (dialogResult === null) { return {
-                        type: "panic",
-                        panicedAst: ast,
-                        panics: [new KsmcCommonPanic(
+                    if (dialogResult === null) {
+                        panics.push(new KsmcCommonPanic(
                             `未知的标识符“${dialogToken.id}”。`,
                             dialogToken.type === "idToken" ? dialogToken.range : ask.range
-                        )],
-                    };}
-                    if (dialogResult.type !== "dialog") { return {
-                        type: "panic",
-                        panicedAst: ast,
-                        panics: [new KsmcCommonPanic(
+                        ));
+                    } else if (dialogResult.type !== "dialog") {
+                        panics.push(new KsmcCommonPanic(
                             `“${dialogToken.id}”不是对话标识符。`,
                             dialogToken.type === "idToken" ? dialogToken.range : ask.range
-                        )],
-                    };}
+                        ));
+                    }
                 };
             } else if (node.type === "dialog") {
                 for (const command of node.commands) { // 检验对话中的每一行命令
                     if (command.type === "say") { // 说话者存在吗？
                         if (command.charIdToken !== null) {
                             const charResult = getNodeById(command.charIdToken.id);
-                            if (charResult === null) { return {
-                                type: "panic",
-                                panicedAst: ast,
-                                panics: [new KsmcCommonPanic(`未知的标识符“${command.charIdToken.id}”。`, command.charIdToken.range)],
-                            }; }
-                            if (charResult.type !== "char") { return {
-                                type: "panic",
-                                panicedAst: ast,
-                                panics: [new KsmcCommonPanic(`“${command.charIdToken.id}”不是角色标识符。`, command.charIdToken.range)],
-                            }; }
+                            if (charResult === null) {
+                                panics.push(new KsmcCommonPanic(`未知的标识符“${command.charIdToken.id}”。`, command.charIdToken.range));
+                            } else if (charResult.type !== "char") {
+                                panics.push(new KsmcCommonPanic(`“${command.charIdToken.id}”不是角色标识符。`, command.charIdToken.range));
+                            }
                         }
                     } else if (command.type === "note") { // 笔记的联络人或线索存在吗？
                         const targetToken = command.target;
                         const targetResult = getNodeById(targetToken.id);
-                        if (targetResult === null) { return { // 不存在该名称
-                            type: "panic",
-                            panicedAst: ast,
-                            panics: [new KsmcCommonPanic(
+                        if (targetResult === null) { // 不存在该名称
+                            panics.push(new KsmcCommonPanic(
                                 `未知的标识符“${targetToken.id}”。`,
                                 targetToken.type === "idToken" ? targetToken.range : command.range
-                            )],
-                        }; }
-                        if (targetResult.type !== "char" && targetResult.type !== "clue") { return { // 该名称类型不对
-                            type: "panic",
-                            panicedAst: ast,
-                            panics: [new KsmcCommonPanic(
+                            ));
+                        } else if (targetResult.type !== "char" && targetResult.type !== "clue") {// 该名称类型不对
+                            panics.push(new KsmcCommonPanic(
                                 `“${targetToken.id}”不是线索或角色标识符。`,
                                 targetToken.type === "idToken" ? targetToken.range : command.range
-                            )],
-                        }; }
+                            ));
+                        }
                     }
                 };
             }
@@ -1079,26 +1094,24 @@ export function makeAstFromSrc(options: {
         for (const combine of ast.combines) {
             for (const reason of combine.reasons) {
                 if (reason.type === "idToken") {
-                    const reasonResult = getNodeById(reason.id);
-                    if (reasonResult === null) { return {
-                        type: "panic",
-                        panicedAst: ast,
-                        panics: [new KsmcCommonPanic(`未知的标识符“${reason.id}”。`, reason.range)],
-                    }; }
+                    if (getNodeById(reason.id) === null) {
+                        panics.push(new KsmcCommonPanic(`未知的标识符“${reason.id}”。`, reason.range));
+                    }
                 }
             }
             if (combine.infer.type === "idToken") {
-                const inferResult = getNodeById(combine.infer.id);
-                if (inferResult === null) { return {
-                    type: "panic",
-                    panicedAst: ast,
-                    panics: [new KsmcCommonPanic(`未知的标识符“${combine.infer.id}”。`, combine.infer.range)],
-                }; }
+                if (getNodeById(combine.infer.id) === null) {
+                    panics.push(new KsmcCommonPanic(`未知的标识符“${combine.infer.id}”。`, combine.infer.range));
+                }
             }
         }
     }
 
-    return { type: "success", validAst: ast };
+    if (panics.length === 0) {
+        return { type: "success", validAst: ast };
+    } else {
+        return { type: "panic", panicedAst: ast, panics };
+    }
 }
 
 
@@ -1111,7 +1124,7 @@ export function makeKsmdListFromAst(opitons: {
     const { ast } = opitons;
     const handleInlineNewlines = opitons.handleInlineNewlines ?? "panic";
     const ksmdList: string[] = [];
-    const add = <T extends NodeWithName>(...texts: [`@${Id<T>}`, T["type"],  ...string[]]) => {
+    const add = <T extends NamedNode>(...texts: [`@${Id<T>}`, T["type"],  ...string[]]) => {
         for (const txt of texts) {
             if (handleInlineNewlines !== "preserve" && hasNlReg.test(txt)) {
                 if (handleInlineNewlines === "panic") {

@@ -1,5 +1,5 @@
 import * as vsc from 'vscode';
-import { KsmcCommonPanic, KsmcFsPanic, makeAstFromSrc, makeKsmdListFromAst, KsmRange, getKsmConfigFromAbsDir, getSrcCodeFromPath, IdToken, Char, getNodeFromAstById, Dialog, Clue, writeFileByPath, NodeWithName, KsmAst, ReservedWords, Command, writeFileByAbsDir, makeEmptyAst, Keywords } from './ksmc/parser';
+import { KsmcCommonPanic, KsmcFsPanic, makeAstFromSrc, makeKsmdListFromAst, KsmRange, getKsmConfigFromAbsDir, getSrcCodeFromPath, IdToken, Char, getNodeFromAstById, Dialog, Clue, writeFileByPath, NamedNode, KsmAst, ReservedWords, Command, writeFileByAbsDir, makeEmptyAst, Keywords } from './ksmc/parser';
 import { cast, staticAssert } from './utils';
 import path from 'path';
 
@@ -49,7 +49,9 @@ export function activate(context: vsc.ExtensionContext) {
 
 ${descLines.slice(1).join("  \n")}
 
-${node.asks.map(ask => `${ask.charIdToken.id} -> ${ask.dialog.id}`).join("  \n")}`
+\`\`\`
+${node.asks.map(ask => `${ask.charIdToken.id} -> ${ask.dialog.id}`).join("  \n")}
+\`\`\``
 					);
 				}
 				return new vsc.Hover(mdstr);
@@ -297,7 +299,7 @@ ${node.asks.map(ask => `${ask.charIdToken.id} -> ${ask.dialog.id}`).join("  \n")
 		if (hoverIdToken === null) { return; }
 		// 到此处，已经获取到了有一个带有引用的焦点
 		const hoverId = hoverIdToken.id;
-		const hoverDeclare = cast<NodeWithName | null, NodeWithName>(getNodeFromAstById(ast, hoverId));
+		const hoverDeclare = cast<NamedNode | null, NamedNode>(getNodeFromAstById(ast, hoverId));
 		for (const node of Object.values(ast.symbols)) {
 			if (node.type === "char") {
 				if (includeDeclaration) {
@@ -470,6 +472,7 @@ ${node.asks.map(ask => `${ask.charIdToken.id} -> ${ask.dialog.id}`).join("  \n")
 
 			Keywords.forEach(word => compItems.push(new vsc.CompletionItem(word, vsc.CompletionItemKind.Keyword)));
 			for (const node of Object.values(ast.symbols)) {
+				if (node.idToken.id.startsWith(`_ksm_ano_`)) { continue; }
 				const label: vsc.CompletionItemLabel = {
 					label: node.idToken.id,
 					//detail: `${node.type} ${node.idToken.id}`,
@@ -595,13 +598,21 @@ ${node.asks.map(ask => `${ask.charIdToken.id} -> ${ask.dialog.id}`).join("  \n")
 		},
 	}, {});
 
-	/*const docLinkProvider = vsc.languages.registerDocumentLinkProvider("ksm", {
-		async provideDocumentLinks(document, token): Promise<vsc.DocumentLink | null> {
+	const documentLinkProvider = vsc.languages.registerDocumentLinkProvider("ksm", {
+		async provideDocumentLinks(document, token): Promise<vsc.DocumentLink[] | null> {
 			if (ast === null) { return null; }
 
-			new vsc.DocumentLink()
+			const links: vsc.DocumentLink[] = [];
+			for (const imp of ast.imports) {
+				if (document.uri.fsPath !== imp.range.fileAbsDir) { continue; }
+				links.push(new vsc.DocumentLink(
+					imp.pathStringToken.range.vscRange,
+					vsc.Uri.file(imp.importAbsDir)
+				));
+			}
+			return links;
 		},
-	});*/
+	});
 
 	//#region compile
 	{
