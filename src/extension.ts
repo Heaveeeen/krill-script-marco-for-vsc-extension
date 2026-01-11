@@ -1,5 +1,5 @@
 import * as vsc from 'vscode';
-import { KsmcCommonPanic, KsmcFsPanic, makeAstFromSrc, makeKsmdListFromAst, KsmRange, getKsmConfigFromAbsDir, getSrcCodeFromPath, IdToken, Char, getNodeFromAstById, Dialog, Clue, writeFileByPath, NamedNode, KsmAst, ReservedWords, Command, writeFileByAbsDir, makeEmptyAst, Keywords, isAno } from './ksmc/parser';
+import { KsmcCommonPanic, KsmcFsPanic, makeAstFromSrc, makeKsmdListFromAst, KsmRange, getKsmConfigFromAbsDir, getSrcCodeFromPath, IdToken, Char, getNodeFromAstById, Dialog, Clue, writeFileByPath, NamedNode, KsmAst, ReservedWords, Command, writeFileByAbsDir, makeEmptyAst, Keywords, isMagic, isAno } from './ksmc/parser';
 import { cast, staticAssert } from './utils';
 import path from 'path';
 
@@ -472,7 +472,7 @@ ${node.asks.map(ask => `${ask.charIdToken.id} -> ${ask.dialog.id}`).join("  \n")
 
 			Keywords.forEach(word => compItems.push(new vsc.CompletionItem(word, vsc.CompletionItemKind.Keyword)));
 			for (const node of Object.values(ast.symbols)) {
-				if (isAno<NamedNode>(node.idToken.id)) { continue; }
+				if (isMagic<NamedNode>(node.idToken.id)) { continue; }
 				const label: vsc.CompletionItemLabel = {
 					label: node.idToken.id,
 					//detail: `${node.type} ${node.idToken.id}`,
@@ -613,7 +613,7 @@ ${node.asks.map(ask => `${ask.charIdToken.id} -> ${ask.dialog.id}`).join("  \n")
 			}
 			if (anos.children.length > 0) {
 				anos.detail = `[${anos.children.length}]`;
-				symbols.push(anos); // 匿名符号放最后
+				symbols.push(anos);
 			}
 			return symbols;
 		},

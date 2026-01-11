@@ -42,7 +42,9 @@ export class KsmcNoSuchTokenError extends Error {
 
 export type Id<T extends NamedNode = NamedNode> = string & { __brand: T };
 
-export type AnoId<T extends NamedNode = NamedNode> = Id<T> & { __isAnoId: true };
+export type MagicId<T extends NamedNode = NamedNode> = Id<T> & { __isMagicId: true };
+
+export type AnoId<T extends NamedNode = NamedNode> = Id<T> & { __isMagicId: true, __isAnoId: true };
 
 export type IdToken<T extends NamedNode = NamedNode> = {
     type: "idToken",
@@ -110,7 +112,6 @@ export type NamedNode = Char | Clue | Dialog;
 export const ReservedWords = new Set([
     `char`, `clue`, `dialog`, `note`, `import`, `combine`,
     `角色`, `线索`, `对话`, `笔记`, `导入`, `组合`,
-    `_ksm_metadata_desc_`, `_ksm_metadata_build_timestamp_`,
 ]);
 export const Keywords = [`char`, `clue`, `dialog`, `note`, `import`, `角色`, `线索`, `对话`, `笔记`, `导入`];
 
@@ -287,7 +288,11 @@ export function getNodeFromAstById<T extends NamedNode>(ast: KsmAst, id: Id<T>) 
 
 export function makeEmptyAst(): KsmAst { return {symbols: {}, combines: [], imports: []}; }
 
-export function isAno<T extends NamedNode>(id: Id<T>): id is AnoId<T> {
+export function isMagic<T extends NamedNode>(id: Id<T>): id is MagicId<T> {
+    return id.startsWith(`_ksm_`);
+}
+
+export function isAno<T extends NamedNode>(id: Id<T>): id is MagicId<T> {
     return id.startsWith(`_ksm_ano_`);
 }
 
@@ -308,6 +313,7 @@ export function makeAstFromSrc(options: {
 }): { type: "success", validAst: KsmAst } | { type: "panic", panicedAst: KsmAst | null, panics: (KsmcCommonPanic | KsmcFsPanic)[] } {
     const {srcCode, fileAbsDir, importedAbsDirs, ast, allowUndefinedIds} = options;
     const panics: (KsmcCommonPanic | KsmcFsPanic)[] = [];
+    // TODO: const warns: (KsmcCommonPanic | KsmcFsPanic)[] = [];
     const handleImportButNoPathError = options.handleImportButNoPathError ?? "panic";
     const handleNewlineInString = options.handleNewlineInString ?? "panic";
     const handleIndentInString = options.handleIndentInString ?? "panic";
@@ -399,8 +405,8 @@ export function makeAstFromSrc(options: {
             // 匹配名称
             while (next() && idBodyReg.test(peek())) {}
             let id = srcCode.substring(beginPos, pos) as Id<T>;
-            if (isAno(id)) {
-                // TODO: 警告：不建议手动声明匿名标识符
+            if (isMagic(id)) {
+                // TODO: 警告：不建议手动声明魔法标识符
             }
             if (!ReservedWords.has(id)) {
                 return { type: "idToken", id, range: getRange(beginRow, beginCol) };
@@ -1134,6 +1140,11 @@ export function makeKsmdListFromAst(opitons: {
     const handleInlineNewlines = opitons.handleInlineNewlines ?? "panic";
     const ksmdList: string[] = [];
     const add = <T extends NamedNode>(...texts: [`@${Id<T>}`, T["type"],  ...string[]]) => {
+        for (let i = 1; i < texts.length; i++) {
+            if (texts[i].startsWith(`@`)) {
+                return new KsmcCommonPanic(`编译所得的 KSMD 中包含以 @ 开头的文本：${texts[i]}\n（由于 KSMD 并不完备，请勿在字符串等的开头使用 @ 字符！）`, null);
+            }
+        }
         for (const txt of texts) {
             if (handleInlineNewlines !== "preserve" && hasNlReg.test(txt)) {
                 if (handleInlineNewlines === "panic") {

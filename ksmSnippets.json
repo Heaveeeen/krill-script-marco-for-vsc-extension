@@ -1,7 +1,7 @@
 {
     "Character Declaration": {
         "prefix": ["char", "角色", "declare char"],
-        "body": ["char ${0:id} \"${1:name}\""],
+        "body": ["char ${0:id} \"${1:name}\" \"${2:description}\""],
         "description": "Declare a new character"
     },
     "Clue Declaration": {
