@@ -52,8 +52,15 @@ export type IdToken<T extends NamedNode = NamedNode> = {
     range: KsmRange,
 };
 
+export type KwToken<T extends NamedNode = NamedNode> = {
+    type: "kwToken",
+    kwType: T["type"],
+    range: KsmRange,
+};
+
 export type Char = {
     type: "char",
+    kwToken: KwToken<Char>,
     idToken: IdToken<Char>,
     name: string,
     desc: string,
@@ -62,6 +69,7 @@ export type Char = {
 
 export type Clue = {
     type: "clue",
+    kwToken: KwToken<Clue>,
     idToken: IdToken<Clue>,
     desc: string,
     asks: AskPair[],
@@ -77,6 +85,7 @@ export type AskPair = {
 
 export type Dialog = {
     type: "dialog",
+    kwToken: KwToken<Dialog>,
     idToken: IdToken<Dialog>,
     commands: Command[],
     range: KsmRange,
@@ -98,6 +107,7 @@ export type Say = {
     charIdToken: IdToken<Char> | null,
     charId: Id<Char>,
     text: string,
+    isOmittedCharId: boolean,
     range: KsmRange,
 }
 
@@ -557,6 +567,7 @@ export function makeAstFromSrc(options: {
         const beginToken = srcCode.substring(pos, pos + 4) === "char" ? "char" : srcCode.substring(pos, pos + 2) === "角色" ? "角色" : null;
         if (beginToken !== null) {
             next(beginToken.length);
+            const kwToken: KwToken<Char> = { type: "kwToken", kwType: "char", range: getRange(beginRow, beginCol) };
             if (!allowChineseKeywords && beginToken === "角色") {
                 return new KsmcCommonPanic(`禁止使用中文关键词。（该报错可通过配置 allowChineseKeywords 以忽略。）`, getRange(beginRow, beginCol));
             }
@@ -577,6 +588,7 @@ export function makeAstFromSrc(options: {
 
             return makeDeclare<Char>({
                 type: "char",
+                kwToken,
                 idToken: idResult,
                 name: nameResult.str,
                 desc: descResult.str,
@@ -596,6 +608,7 @@ export function makeAstFromSrc(options: {
         const beginToken = srcCode.substring(pos, pos + 4) === "clue" ? "clue" : srcCode.substring(pos, pos + 2) === "线索" ? "线索" : null;
         if (beginToken !== null) {
             next(beginToken.length);
+            const kwToken: KwToken<Clue> = { type: "kwToken", kwType: "clue", range: getRange(beginRow, beginCol) };
             if (!allowChineseKeywords && beginToken === "线索") {
                 return new KsmcCommonPanic(`禁止使用中文关键词。（该报错可通过配置 allowChineseKeywords 以忽略。）`, getRange(beginRow, beginCol));
             }
@@ -670,7 +683,13 @@ export function makeAstFromSrc(options: {
                 // 至此，光标位于花括号扩回
                 next();
 
-                return makeDeclare<Clue>({ type: "clue", idToken: clueIdToken, desc: descResult.str, asks, range: getRange(beginRow, beginCol) });
+                return makeDeclare<Clue>({
+                    type: "clue",
+                    kwToken,
+                    idToken: clueIdToken,
+                    desc: descResult.str,
+                    asks,
+                    range: getRange(beginRow, beginCol) });
             } else {
                 return new KsmcCommonPanic(`线索定义缺少左大括号“{”`, getRange(beginRow, beginCol));
             }
@@ -688,6 +707,7 @@ export function makeAstFromSrc(options: {
         const beginToken = srcCode.substring(pos, pos + 6) === "dialog" ? "dialog" : srcCode.substring(pos, pos + 2) === "对话" ? "对话" : null;
         if (beginToken !== null) {
             next(beginToken.length);
+            const kwToken: KwToken<Dialog> = { type: "kwToken", kwType: "dialog", range: getRange(beginRow, beginCol) };
             if (!allowChineseKeywords && beginToken === "对话") {
                 return new KsmcCommonPanic(`禁止使用中文关键词。（该报错可通过配置 allowChineseKeywords 以忽略。）`, getRange(beginRow, beginCol));
             }
@@ -718,7 +738,13 @@ export function makeAstFromSrc(options: {
                 // 至此，光标位于花括号扩回
                 next();
 
-                return makeDeclare<Dialog>({ type: "dialog", idToken: dialogIdToken, commands ,range: getRange(beginRow, beginCol) });
+                return makeDeclare<Dialog>({
+                    type: "dialog",
+                    kwToken,
+                    idToken: dialogIdToken,
+                    commands,
+                    range: getRange(beginRow, beginCol)
+                });
             } else {
                 return new KsmcCommonPanic(`对话定义缺少左大括号“{”`, getRange(beginRow, beginCol));
             }
@@ -736,8 +762,10 @@ export function makeAstFromSrc(options: {
         let charId: Id<Char> | null;
         let colonResult = nextColon();
         let idTokenResult = null;
+        let isOmittedCharId = false;
         if (typeof colonResult === "string") {
             charId = lastCharId;
+            isOmittedCharId = true;
         } else {
             // 开头的冒号没找到，现在位于指令开头
             idTokenResult = nextIdentifier();
@@ -793,7 +821,7 @@ export function makeAstFromSrc(options: {
             }
             next();
         }
-        return { type: "say", charIdToken: idTokenResult, charId, text, range: getRange(beginRow, beginCol) };
+        return { type: "say", charIdToken: idTokenResult, charId, text, isOmittedCharId, range: getRange(beginRow, beginCol) };
     }
 
     function nextNote(): Note | KsmcNoSuchTokenError | KsmcCommonPanic {

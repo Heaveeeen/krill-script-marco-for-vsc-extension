@@ -5,7 +5,7 @@
     "author": {
         "name": "Heaveeeen"
     },
-    "version": "0.0.11",
+    "version": "0.0.12",
     "license": "MIT",
     "repository": {
         "type": "git",
@@ -88,6 +88,16 @@
                         ],
                         "default": "warp",
                         "markdownDescription": "是否应该在大纲中显示匿名声明，如匿名对话和匿名线索。"
+                    },
+                    "krillScriptMarco.showOmittedCharIds": {
+                        "type": "string",
+                        "enum": ["all", "none"],
+                        "markdownEnumDescriptions": [
+                            "显示所有省略的角色 ID",
+                            "不显示省略的角色 ID"
+                        ],
+                        "default": "none",
+                        "markdownDescription": "是否应该通过镶嵌提示在说话指令中显示省略的角色 ID。"
                     }
                 }
             }

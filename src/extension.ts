@@ -37,6 +37,10 @@ export function activate(context: vsc.ExtensionContext) {
 			const getCharHover = (node: Char) => {
 				const mdstr = new vsc.MarkdownString();
 				mdstr.appendCodeblock(`char ${node.idToken.id} ${JSON.stringify(node.name)} ${JSON.stringify(node.desc)}`, "ksm");
+				const descLines = node.desc.split("\\n");
+				if (descLines.length > 0) { 
+					mdstr.appendMarkdown(descLines.join("  \n"));
+				}
 				return new vsc.Hover(mdstr);
 			};
 			const getClueHover = (node: Clue) => {
@@ -76,13 +80,13 @@ ${node.asks.map(ask => `${ask.charIdToken.id} -> ${ask.dialog.id}`).join("  \n")
 			for (const node of Object.values(ast.symbols)) {
 				if (!isHover(node.range)) { continue; }
 				if (node.type === "char") {
-					if (isHover(node.idToken.range)) {
-						// char [马可] "马可"
+					if (isHover(node.kwToken.range) || isHover(node.idToken.range)) {
+						// [char] [马可] "马可"
 						return getCharHover(node);
 					}
 				} else if (node.type === "clue") {
-					if (isHover(node.idToken.range)) {
-						// clue [血字] "..." { ... }
+					if (isHover(node.kwToken.range) || isHover(node.idToken.range)) {
+						// [clue] [血字] "..." { ... }
 						return getClueHover(node);
 					} else {
 						for (const ask of node.asks) {
@@ -98,8 +102,8 @@ ${node.asks.map(ask => `${ask.charIdToken.id} -> ${ask.dialog.id}`).join("  \n")
 						}
 					}
 				} else if (node.type === "dialog") {
-					if (isHover(node.idToken.range)) {
-						// dialog [我的对话] { ... }
+					if (isHover(node.kwToken.range) || isHover(node.idToken.range)) {
+						// [dialog] [我的对话] { ... }
 						return getDialogHover(node);
 					} else {
 						for (const command of node.commands) {
@@ -571,7 +575,7 @@ ${node.asks.map(ask => `${ask.charIdToken.id} -> ${ask.dialog.id}`).join("  \n")
 					}
 					for (const ask of node.asks) {
 						clue.children.push(new vsc.DocumentSymbol(
-							`${ask.charIdToken.id}：${ask.dialog.id}`,
+							`${ask.charIdToken.id} -> ${ask.dialog.id}`,
 							"ask",
 							vsc.SymbolKind.Event,
 							ask.range.vscRange,
@@ -632,6 +636,41 @@ ${node.asks.map(ask => `${ask.charIdToken.id} -> ${ask.dialog.id}`).join("  \n")
 				));
 			}
 			return links;
+		},
+	});
+
+	const inlayHintProvider = vsc.languages.registerInlayHintsProvider("ksm", {
+		async provideInlayHints(document, range, token): Promise<vsc.InlayHint[] | null> {
+			if (ast === null) { return null; }
+
+			let showOmittedCharIds: "none" | "all";
+			{
+				let cfg = vsc.workspace.getConfiguration("krillScriptMarco").get("showOmittedCharIds");
+				if (cfg === "all" || cfg === "none") {
+					showOmittedCharIds = cfg;
+				} else {
+					showOmittedCharIds = "none";
+				}
+			}
+
+			if (showOmittedCharIds === "none") { return null; }
+
+			const inlayHints: vsc.InlayHint[] = [];
+			for (const node of Object.values(ast.symbols)) {
+				if (document.uri.fsPath !== node.range.fileAbsDir) { continue; }
+				if (node.type !== "dialog") { continue; }
+
+				for (const command of node.commands) {
+					if (command.type === "say" && command.isOmittedCharId) {
+						const part = new vsc.InlayHintLabelPart(command.charId);
+						inlayHints.push(new vsc.InlayHint(
+							command.range.vscRange.start,
+							[part],
+						));
+					}
+				}
+			}
+			return inlayHints;
 		},
 	});
 
