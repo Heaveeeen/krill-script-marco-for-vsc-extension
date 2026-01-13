@@ -19,7 +19,7 @@ export class KsmcCommonPanic extends Error {
         } else {
             super(
 `KSM 编译错误: ${message}
-位于 ${range.vscRange.start.line + 1}, ${range.vscRange.start.character} ~ ${range.vscRange.end.line + 1}, ${range.vscRange.end.character}`
+位于 ${range.fileAbsDir}: ${range.vscRange.start.line + 1}, ${range.vscRange.start.character} ~ ${range.vscRange.end.line + 1}, ${range.vscRange.end.character}`
             );
         }
         this.range = range;
@@ -423,7 +423,7 @@ export function makeAstFromSrc(options: {
             }
         }
         const noSuchTokenRange = getRange(beginRow, beginCol);
-        pos = beginPos, row = beginRow, col = beginCol;
+        pos = beginPos; row = beginRow; col = beginCol;
         return new KsmcNoSuchTokenError(
             new KsmcCommonPanic(`应为标识符。`, noSuchTokenRange)
         );
@@ -526,7 +526,7 @@ export function makeAstFromSrc(options: {
             return { str, range: getRange(beginRow, beginCol) };
         } else {
             const noSuchTokenRange = getRange(beginRow, beginCol);
-            pos = beginPos, row = beginRow, col = beginCol;
+            pos = beginPos; row = beginRow; col = beginCol;
             return new KsmcNoSuchTokenError(
                 new KsmcCommonPanic(`应为字符串字面量。`, noSuchTokenRange)
             );
@@ -542,7 +542,7 @@ export function makeAstFromSrc(options: {
             return colon;
         } else {
             const noSuchTokenRange = getRange(beginRow, beginCol);
-            pos = beginPos, row = beginRow, col = beginCol;
+            pos = beginPos; row = beginRow; col = beginCol;
             return new KsmcNoSuchTokenError(new KsmcCommonPanic(`应为冒号。`, noSuchTokenRange));
         }
     }
@@ -556,7 +556,7 @@ export function makeAstFromSrc(options: {
             return arrow;
         } else {
             //const noSuchTokenRange = getRange(beginRow, beginCol);
-            //pos = beginPos, row = beginRow, col = beginCol;
+            //pos = beginPos; row = beginRow; col = beginCol;
             const noSuchTokenRange = getRange(row, col);
             return new KsmcNoSuchTokenError(new KsmcCommonPanic(`应为箭头“->”。`, noSuchTokenRange));
         }
@@ -596,7 +596,7 @@ export function makeAstFromSrc(options: {
             });
         } else {
             const noSuchTokenRange = getRange(beginRow, beginCol);
-            pos = beginPos, row = beginRow, col = beginCol;
+            pos = beginPos; row = beginRow; col = beginCol;
             return new KsmcNoSuchTokenError(
                 new KsmcCommonPanic(`应为角色声明。`, noSuchTokenRange)
             );
@@ -626,20 +626,22 @@ export function makeAstFromSrc(options: {
                 const asks: AskPair[] = [];
                 const addAskByDialogIdToken = (newCharIdToken: IdToken<Char>, newDialogIdToken: IdToken<Dialog>, range: KsmRange) => {
                     if (asks.some(({charIdToken}) => charIdToken.id === newCharIdToken.id)) {
-                        return new KsmcCommonPanic(`重复的询问对象“${newCharIdToken}”`, getRange(beginRow, beginCol));
+                        return new KsmcCommonPanic(`重复的询问对象“${newCharIdToken.id}”`, range);
                     } else {
                         asks.push({type: "askPair", charIdToken: newCharIdToken, dialog: newDialogIdToken, range});
+                        return "success";
                     }
                 };
                 const addAskByDialogDeclare = (newCharIdToken: IdToken<Char>, newDialogDeclare: Dialog, range: KsmRange) => {
                     if (asks.some(({charIdToken}) => charIdToken.id === newCharIdToken.id)) {
-                        return new KsmcCommonPanic(`重复的询问对象“${newCharIdToken}”`, getRange(beginRow, beginCol));
+                        return new KsmcCommonPanic(`重复的询问对象“${newCharIdToken.id}”`, range);
                     } else {
                         asks.push({
                             type: "askPair", charIdToken: newCharIdToken,
                             dialog: { type: "askDialogLiteralId", id: newDialogDeclare.idToken.id },
                             range
                         });
+                        return "success";
                     }
                 };
                 next();
@@ -665,17 +667,25 @@ export function makeAstFromSrc(options: {
                     } else if (dialogIdOrDeclareResult instanceof KsmcCommonPanic) {
                         return dialogIdOrDeclareResult;
                     } else if (dialogIdOrDeclareResult.type === "idToken") {
-                        addAskByDialogIdToken(
+                        const addResult = addAskByDialogIdToken(
                             cast<IdToken, IdToken<Char>>(charIdResult),
                             cast<IdToken, IdToken<Dialog>>(dialogIdOrDeclareResult),
                             getRange(askBeginRow, askBeginCol)
                         ); // FIXME ASSERT asks (done)
+                        if (addResult instanceof KsmcCommonPanic) {
+                            return addResult;
+                        }
+                        staticAssert<"success">(addResult);
                     } else {
-                        addAskByDialogDeclare(
+                        const addResult = addAskByDialogDeclare(
                             cast<IdToken, IdToken<Char>>(charIdResult),
                             dialogIdOrDeclareResult,
                             getRange(askBeginRow, askBeginCol)
                         );
+                        if (addResult instanceof KsmcCommonPanic) {
+                            return addResult;
+                        }
+                        staticAssert<"success">(addResult);
                     }
 
                     skipWS();
@@ -695,7 +705,7 @@ export function makeAstFromSrc(options: {
             }
         } else {
             const noSuchTokenRange = getRange(beginRow, beginCol);
-            pos = beginPos, row = beginRow, col = beginCol;
+            pos = beginPos; row = beginRow; col = beginCol;
             return new KsmcNoSuchTokenError(
                 new KsmcCommonPanic(`应为线索声明。`, noSuchTokenRange)
             );
@@ -750,7 +760,7 @@ export function makeAstFromSrc(options: {
             }
         } else {
             const noSuchTokenRange = getRange(beginRow, beginCol);
-            pos = beginPos, row = beginRow, col = beginCol;
+            pos = beginPos; row = beginRow; col = beginCol;
             return new KsmcNoSuchTokenError(
                 new KsmcCommonPanic(`应为对话声明。`, noSuchTokenRange)
             );
@@ -783,7 +793,7 @@ export function makeAstFromSrc(options: {
 
         if (colonResult instanceof KsmcNoSuchTokenError) {
             const noSuchTokenRange = getRange(beginRow, beginCol);
-            pos = beginPos, row = beginRow, col = beginCol;
+            pos = beginPos; row = beginRow; col = beginCol;
             return new KsmcNoSuchTokenError(
                 new KsmcCommonPanic(`应为说话指令。（未找到冒号）`, noSuchTokenRange)
             );
@@ -858,7 +868,7 @@ export function makeAstFromSrc(options: {
 
         } else {
             const noSuchTokenRange = getRange(beginRow, beginCol);
-            pos = beginPos, row = beginRow, col = beginCol;
+            pos = beginPos; row = beginRow; col = beginCol;
             return new KsmcNoSuchTokenError(
                 new KsmcCommonPanic(`应为笔记指令。`, noSuchTokenRange)
             );
@@ -937,7 +947,7 @@ export function makeAstFromSrc(options: {
             }
         } else {
             const noSuchTokenRange = getRange(beginRow, beginCol);
-            pos = beginPos, row = beginRow, col = beginCol;
+            pos = beginPos; row = beginRow; col = beginCol;
             return new KsmcNoSuchTokenError(new KsmcCommonPanic(`应为导入指令。`, noSuchTokenRange));
         }
     }
@@ -1029,7 +1039,7 @@ export function makeAstFromSrc(options: {
             }
         } else {
             const noSuchTokenRange = getRange(beginRow, beginCol);
-            pos = beginPos, row = beginRow, col = beginCol;
+            pos = beginPos; row = beginRow; col = beginCol;
             return new KsmcNoSuchTokenError(
                 new KsmcCommonPanic(`应为组合声明。`, noSuchTokenRange)
             );
