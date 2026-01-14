@@ -5,7 +5,7 @@
     "author": {
         "name": "Heaveeeen"
     },
-    "version": "0.0.13",
+    "version": "0.0.14",
     "license": "MIT",
     "repository": {
         "type": "git",
@@ -98,6 +98,16 @@
                         ],
                         "default": "none",
                         "markdownDescription": "是否应该通过镶嵌提示在说话指令中显示省略的角色 ID。"
+                    },
+                    "krillScriptMarco.showDialogInfoAtDeclare": {
+                        "type": "string",
+                        "enum": ["all", "none"],
+                        "markdownEnumDescriptions": [
+                            "在对话声明处显示其所有统计信息",
+                            "在对话声明处不显示统计信息"
+                        ],
+                        "default": "none",
+                        "markdownDescription": "是否应该在对话声明处通过镶嵌提示显示统计到的对话信息，如所有说话者的角色 ID。"
                     }
                 }
             }

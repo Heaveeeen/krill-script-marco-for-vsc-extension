@@ -8,9 +8,10 @@ export interface KsmRange {
     vscRange: vsc.Range,
 }
 
-export class KsmcCommonPanic extends Error {
+export class KsmcCommonPanic<T = unknown> extends Error {
     readonly range: KsmRange | null;
-    constructor(message: string, range: KsmRange | null) {
+    readonly type?: T;
+    constructor(message: string, range: KsmRange | null, type?: T) {
         if (range === null) {
             super(
 `KSM 编译错误: ${message}
@@ -23,6 +24,7 @@ export class KsmcCommonPanic extends Error {
             );
         }
         this.range = range;
+        this.type = type;
     }
 }
 
@@ -88,6 +90,7 @@ export type Dialog = {
     kwToken: KwToken<Dialog>,
     idToken: IdToken<Dialog>,
     commands: Command[],
+    speakers: Set<Id<Char>>,
     range: KsmRange,
 };
 
@@ -728,7 +731,13 @@ export function makeAstFromSrc(options: {
             skipWS();
             if (peek() === "{") {
                 const commands: Command[] = [];
-                const addCommand = (command: Command) => commands.push(command);
+                const speakers = new Set<Id<Char>>();
+                const addCommand = (command: Command) => {
+                    commands.push(command);
+                    if (command.type === "say") {
+                        speakers.add(command.charId);
+                    }
+                };
                 let lastSayCharId: Id<Char> | null = null;
                 next();
                 skipWS();
@@ -753,6 +762,7 @@ export function makeAstFromSrc(options: {
                     kwToken,
                     idToken: dialogIdToken,
                     commands,
+                    speakers,
                     range: getRange(beginRow, beginCol)
                 });
             } else {

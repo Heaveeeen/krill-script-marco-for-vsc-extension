@@ -61,7 +61,7 @@ ${node.asks.map(ask => `${ask.charIdToken.id} -> ${ask.dialog.id}`).join("  \n")
 				return new vsc.Hover(mdstr);
 			};
 			const getDialogHover = (node: Dialog) => {
-				const mdstr = new vsc.MarkdownString(undefined, true);
+				const mdstr = new vsc.MarkdownString(`(${[...node.speakers].join(", ")})`, true);
 				if (node.commands.length === 0) {
 					mdstr.appendCodeblock(`dialog ${node.idToken.id} {}`, "ksm");
 				} else {
@@ -653,20 +653,43 @@ ${node.asks.map(ask => `${ask.charIdToken.id} -> ${ask.dialog.id}`).join("  \n")
 				}
 			}
 
-			if (showOmittedCharIds === "none") { return null; }
+			let showDialogInfoAtDeclare: "none" | "all";
+			{
+				let cfg = vsc.workspace.getConfiguration("krillScriptMarco").get("showDialogInfoAtDeclare");
+				if (cfg === "all" || cfg === "none") {
+					showDialogInfoAtDeclare = cfg;
+				} else {
+					showDialogInfoAtDeclare = "none";
+				}
+			}
+
 
 			const inlayHints: vsc.InlayHint[] = [];
 			for (const node of Object.values(ast.symbols)) {
 				if (document.uri.fsPath !== node.range.fileAbsDir) { continue; }
 				if (node.type !== "dialog") { continue; }
 
-				for (const command of node.commands) {
-					if (command.type === "say" && command.isOmittedCharId) {
-						const part = new vsc.InlayHintLabelPart(command.charId);
+				// 显示对话的所有参与者
+				if (showDialogInfoAtDeclare) {
+					if (node.speakers.size > 0) {
+						const part = new vsc.InlayHintLabelPart(`(${[...node.speakers].join(", ")})`);
 						inlayHints.push(new vsc.InlayHint(
-							command.range.vscRange.start,
-							[part],
+							node.kwToken.range.vscRange.end,
+							[part]
 						));
+					}
+				}
+
+				// 显示隐藏的说话者
+				if (showOmittedCharIds === "all") {
+					for (const command of node.commands) {
+						if (command.type === "say" && command.isOmittedCharId) {
+							const part = new vsc.InlayHintLabelPart(command.charId);
+							inlayHints.push(new vsc.InlayHint(
+								command.range.vscRange.start,
+								[part]
+							));
+						}
 					}
 				}
 			}
