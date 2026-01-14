@@ -448,8 +448,11 @@ export function makeAstFromSrc(options: {
 
     function nextString(): { str: string, range: KsmRange } | KsmcNoSuchTokenError | KsmcCommonPanic {
         const beginPos = pos, beginRow = row, beginCol = col;
-        if (peek() === '"' || peek() === "'" || peek() === "“") {
-            const endsChar = peek() === "“" ? "”" : peek();
+        if (peek() === '"' || peek() === "'" || peek() === "“" || peek() === "‘") {
+            const endsChar =
+                peek() === "“" ? "”" :
+                peek() === "‘" ? "’" :
+                peek();
             let str = "";
             let isNewLine = true;
             while (next() !== endsChar) {
@@ -497,6 +500,10 @@ export function makeAstFromSrc(options: {
                         str += "“";
                     } else if (peek() === "”") {
                         str += "”";
+                    } else if (peek() === "‘") {
+                        str += "‘";
+                    } else if (peek() === "’") {
+                        str += "’";
                     } else if (peek() === "s") {
                         str += " "; // \s 转义为空格
                     } else if ("\r\n".includes(peek() as string)) {

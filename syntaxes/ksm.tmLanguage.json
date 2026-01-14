@@ -74,6 +74,17 @@
                             "match": "\\\\."
                         }
                     ]
+                },
+                {
+                    "name": "string.quoted.single.chinese.ksm",
+                    "begin": "‘",
+                    "end": "’",
+                    "patterns": [
+                        {
+                            "name": "constant.character.escape.ksm",
+                            "match": "\\\\."
+                        }
+                    ]
                 }
             ]
         },

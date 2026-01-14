@@ -61,7 +61,7 @@ ${node.asks.map(ask => `${ask.charIdToken.id} -> ${ask.dialog.id}`).join("  \n")
 				return new vsc.Hover(mdstr);
 			};
 			const getDialogHover = (node: Dialog) => {
-				const mdstr = new vsc.MarkdownString(`(${[...node.speakers].join(", ")})`, true);
+				const mdstr = new vsc.MarkdownString(`(${[...node.speakers].sort().join(", ")})`, true);
 				if (node.commands.length === 0) {
 					mdstr.appendCodeblock(`dialog ${node.idToken.id} {}`, "ksm");
 				} else {
@@ -672,7 +672,7 @@ ${node.asks.map(ask => `${ask.charIdToken.id} -> ${ask.dialog.id}`).join("  \n")
 				// 显示对话的所有参与者
 				if (showDialogInfoAtDeclare) {
 					if (node.speakers.size > 0) {
-						const part = new vsc.InlayHintLabelPart(`(${[...node.speakers].join(", ")})`);
+						const part = new vsc.InlayHintLabelPart(`(${[...node.speakers].sort().join(", ")})`);
 						inlayHints.push(new vsc.InlayHint(
 							node.kwToken.range.vscRange.end,
 							[part]
