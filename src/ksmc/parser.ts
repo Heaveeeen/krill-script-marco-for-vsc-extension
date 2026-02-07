@@ -340,16 +340,13 @@ export function makeAstFromSrc(options: {
         }
     };
     
-    const makeAnonymousSymbol = (() => {
-        let i = 0;
-        return <T extends NamedNode>(type: T["type"]) => {
-            let symbol: Id<T>;
-            do {
-                symbol = cast<string, Id<T>>(`_ksm_ano_${type}_${i++}_`);
-            } while (getNodeById(symbol) !== null);
-            return symbol;
-        };
-    })();
+    const makeAnonymousSymbol = <T extends NamedNode>(type: T["type"]) => {
+        let symbol: Id<T>;
+        do {
+            symbol = cast<string, Id<T>>(`_ksm_ano_${type}_${((Math.random()*(36**3))|0).toString(36)}`);
+        } while (getNodeById(symbol) !== null);
+        return symbol;
+    };
 
     let row = 0;
     let col = 0;
